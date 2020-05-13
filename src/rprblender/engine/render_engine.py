@@ -185,9 +185,7 @@ class RenderEngine(Engine):
 
             # export backplate section for tile if backplate present
             if self.world_backplate:
-                self.world_backplate.export_tile(self.rpr_context,
-                                                 tile[0][0], tile[0][1],
-                                                 tile[0][0] + tile[1][0], tile[0][1] + tile[1][1])
+                self.world_backplate.export(self.rpr_context, tile)
 
             sample = 0
             if is_adaptive:
@@ -409,7 +407,7 @@ class RenderEngine(Engine):
         if scene.world.rpr.background_image_type == "BACKPLATE":
             # Different Backplate regions should be exported for each render tile
             self.world_backplate = world.Backplate(scene.world.rpr, (self.width, self.height))
-            self.world_backplate.export_full(self.rpr_context)
+            self.world_backplate.export(self.rpr_context)
 
         # SYNC MOTION BLUR
         self.rpr_context.do_motion_blur = scene.render.use_motion_blur and \

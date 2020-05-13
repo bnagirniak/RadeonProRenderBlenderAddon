@@ -259,3 +259,16 @@ def get_prop_array_data(arr, dtype=np.float32):
 
 def is_zero(val):
     return np.all(np.isclose(val, 0.0))
+
+
+def calculate_image_cropped_size(image_size, render_size):
+    """ Calculate cropped source region size to fit target region aspect ratio """
+    ratio_image = image_size[0] / image_size[1]
+    ratio_render = render_size[0] / render_size[1]
+
+    # crop horizontal size
+    if ratio_image > ratio_render:
+        return image_size[1] * ratio_render, image_size[1]
+
+    # crop vertical size
+    return image_size[0], image_size[0] / ratio_render

@@ -129,45 +129,34 @@ class ImagePixels:
 
         return region_pixels
 
-    def export_full(self, rpr_context) -> (pyrpr.Image, None):
-        """ Export the full image pixels as RPR image"""
-        if self.is_empty():
-            return None
-
-        image_key = f"{self.name}@{self.color_space}"
-
-        if image_key in rpr_context.images:
-            return rpr_context.images[image_key]
-
-        pixels = np.ascontiguousarray(np.flipud(self.pixels))
-        rpr_image = rpr_context.create_image_data(image_key, pixels)
-        rpr_image.set_name(image_key)
-
-        if self.color_space in ('sRGB', 'BD16', 'Filmic Log'):
-            rpr_image.set_gamma(2.2)
-
-        return rpr_image
-
-    def export_region(self, rpr_context, x1, y1, x2, y2) -> (pyrpr.Image, None):
+    def export(self, rpr_context, region=None) -> (pyrpr.Image, None):
         """ Export pixels cropped to sub-region coordinates as RPR image """
         if self.is_empty():
             return None
 
-        # check sub-region boundaries, just in case something went terribly wrong
-        if x1 == x2 or y1 == y2 or x1 >= self.size[0] or x2 < 0 or y1 >= self.size[1] or y2 < 0:
-            log.warn(f"Image region ({x1}; {y1})-({x2}; {y2}) has no data", self.name)
-            return None
+        if region:
+            x1, y1, x2, y2 = region
+            # check sub-region boundaries, just in case something went terribly wrong
+            if x1 == x2 or y1 == y2 or x1 >= self.size[0] or x2 < 0 or y1 >= self.size[1] or y2 < 0:
+                log.warn(f"Image region ({x1}; {y1})-({x2}; {y2}) has no data", self.name)
+                return None
 
-        image_key = f"{self.name}({x1}, {y1})-({x2}, {y2})@{self.color_space}"
+            image_key = f"{self.name}({x1}, {y1})-({x2}, {y2})@{self.color_space}"
+            if image_key in rpr_context.images:
+                return rpr_context.images[image_key]
 
-        if image_key in rpr_context.images:
-            return rpr_context.images[image_key]
+            # get pixels region
+            pixels = self.extract_pixels_region(self.pixels, x1, y1, x2, y2)
 
-        # get pixels region
-        pixels = self.extract_pixels_region(self.pixels, x1, y1, x2, y2)
-        pixels = np.flipud(pixels)
+        else:
+            image_key = f"{self.name}@{self.color_space}"
+            if image_key in rpr_context.images:
+                return rpr_context.images[image_key]
 
-        rpr_image = rpr_context.create_image_data(image_key, np.ascontiguousarray(pixels))
+            pixels = self.pixels
+
+        pixels = np.ascontiguousarray(np.flipud(pixels))
+        rpr_image = rpr_context.create_image_data(image_key, pixels)
 
         rpr_image.set_name(image_key)
 

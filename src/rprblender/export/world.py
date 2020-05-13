@@ -13,7 +13,6 @@
 # limitations under the License.
 #********************************************************************
 from dataclasses import dataclass, field
-import math
 from typing import Tuple
 
 import numpy as np
@@ -23,7 +22,6 @@ import bpy
 import mathutils
 
 import pyrpr
-import pyhybrid
 
 from . import image
 from rprblender.engine.context import RPRContext
@@ -82,17 +80,6 @@ def set_light_rotation(rpr_light, rotation: Tuple[float]) -> np.array:
     return matrix
 
 
-@dataclass(init=True, eq=False)
-class RenderRegion:
-    x1: int = 0
-    y1: int = 0
-    x2: int = 0
-    y2: int = 0
-
-    def is_empty(self):
-        return self.x2 <= self.x1 and self.y2 <= self.y1
-
-
 @dataclass(init=False, eq=True)
 class Backplate:
     """
@@ -103,14 +90,12 @@ class Backplate:
     Exports
     """
 
-    enabled: bool = False
     name: str = None
 
     source_pixels: image.ImagePixels = field(default=None, repr=False)
     source_size: Tuple[int, int, int, int] = field(default=None, repr=True)
 
     def __init__(self, world_data, render_size):
-        self.enabled = bool(world_data.background_image)
         if not world_data.background_image:
             return
 
@@ -180,24 +165,20 @@ class Backplate:
 
         return pixels, pixels.size
 
-    def export_full(self, rpr_context):
+    def export(self, rpr_context, tile=None):
         if not self.source_size:
             return
 
-        rpr_image = self.source_pixels.export_full(rpr_context)
-        rpr_context.scene.set_background_image(rpr_image)
+        region = None
+        if tile:
+            region = (
+                int(tile[0][0] * self.source_size[0]),
+                int(tile[0][1] * self.source_size[1]),
+                int((tile[0][0] + tile[1][0]) * self.source_size[0]),
+                int((tile[0][1] + tile[1][1]) * self.source_size[1])
+            )
 
-    def export_tile(self, rpr_context, x1: float, y1: float, x2: float, y2: float):
-        if not self.source_size:
-            return
-
-        # convert float tile coordinate to int pixel coordinates
-        region = (
-            int(x1 * self.source_size[0]), int(y1 * self.source_size[1]),
-            int(x2 * self.source_size[0]), int(y2 * self.source_size[1]),
-        )
-
-        rpr_image = self.source_pixels.export_region(rpr_context, *region)
+        rpr_image = self.source_pixels.export(rpr_context, region)
         rpr_context.scene.set_background_image(rpr_image)
 
 
@@ -377,7 +358,7 @@ class WorldData:
             pyrpr_key = getattr(pyrpr, f'ENVIRONMENT_LIGHT_OVERRIDE_{override_type.upper()}')
             override = self.overrides.get(override_type, None)
             # Backplate background override type is handled by render engine
-            if override and not (override.image and override.image_type == 'BACKPLATE'):
+            if override and override.image_type == 'SPHERE':
                 rpr_light = rpr_context.scene.environment_overrides.get(pyrpr_key, None)
                 if not rpr_light:
                     rpr_light = rpr_context.create_environment_light()
@@ -399,6 +380,15 @@ class WorldData:
                 if pyrpr_key in rpr_context.scene.environment_overrides:
                     rpr_context.scene.remove_environment_override(pyrpr_key)
 
+        def export_backplate():
+            override = self.overrides.get('background', None)
+            if override and override.image_type == 'BACKPLATE':
+                pass
+
+            else:
+                pass
+
+
         if not self.ibl and not self.sun_sky:
             remove_environment_lights(rpr_context)
             return
@@ -412,6 +402,8 @@ class WorldData:
         export_override('reflection')
         export_override('refraction')
         export_override('transparency')
+
+        export_backplate()
 
         rpr_context.scene.environment_light.set_intensity_scale(self.intensity)
         rpr_context.scene.environment_light.set_group_id(0)

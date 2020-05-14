@@ -353,11 +353,10 @@ class WorldData:
 
         return data
 
-    def export(self, rpr_context):
+    def export(self, rpr_context, use_backplate=True):
         def export_override(override_type):
             pyrpr_key = getattr(pyrpr, f'ENVIRONMENT_LIGHT_OVERRIDE_{override_type.upper()}')
             override = self.overrides.get(override_type, None)
-            # Backplate background override type is handled by render engine
             if override and override.image_type == 'SPHERE':
                 rpr_light = rpr_context.scene.environment_overrides.get(pyrpr_key, None)
                 if not rpr_light:
@@ -383,11 +382,21 @@ class WorldData:
         def export_backplate():
             override = self.overrides.get('background', None)
             if override and override.image_type == 'BACKPLATE':
-                pass
+                if override.image:
+                    image_obj = bpy.data.images[override.image]
+                    try:
+                        rpr_image = image.sync(rpr_context, image_obj)
+                    except ValueError as e:
+                        log.warn(e)
+                        rpr_context.scene.set_background_color(*WARNING_IMAGE_NOT_DEFINED_COLOR)
+                    else:
+                        rpr_context.scene.set_background_image(rpr_image)
+
+                else:
+                    rpr_context.scene.set_background_color(*override.color)
 
             else:
-                pass
-
+                rpr_context.scene.set_background_image(None)
 
         if not self.ibl and not self.sun_sky:
             remove_environment_lights(rpr_context)
@@ -398,12 +407,13 @@ class WorldData:
         else:
             self.sun_sky.export(rpr_context, self.gizmo_rotation)
 
+        if use_backplate:
+            export_backplate()
+
         export_override('background')
         export_override('reflection')
         export_override('refraction')
         export_override('transparency')
-
-        export_backplate()
 
         rpr_context.scene.environment_light.set_intensity_scale(self.intensity)
         rpr_context.scene.environment_light.set_group_id(0)

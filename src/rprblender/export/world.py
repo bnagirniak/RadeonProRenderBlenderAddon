@@ -191,9 +191,32 @@ class WorldData:
         """ Store and compare single Environment Override category settings """
         color: tuple = None
         image: str = None
-        image_type: str = 'SPHERE'
         studio_light: str = None
         intensity: float = 1.0
+
+    @dataclass(init=False, eq=True)
+    class BackplateData:
+        """ Store and compare single Environment Override category settings """
+        color: tuple = None
+        image: str = None
+        crop: bool = False
+
+        def export(self, rpr_context, render_size, tile=((0, 0), (1, 1))):
+            if self.image:
+                image_obj = bpy.data.images[self.image]
+                try:
+                    rpr_image = image.ImagePixels(image_obj)\
+                        .export(rpr_context, render_size if self.crop else None, tile)
+
+                except ValueError as e:
+                    log.warn(e)
+                    rpr_context.scene.set_background_color(*WARNING_IMAGE_NOT_DEFINED_COLOR)
+                else:
+                    rpr_context.scene.set_background_image(rpr_image)
+
+            else:
+                rpr_context.scene.set_background_color(*self.color)
+
 
     @dataclass(eq=True)
     class IblData:
@@ -288,6 +311,7 @@ class WorldData:
     ibl: IblData = None
     sun_sky: SunSkyData = None
     overrides: {str: OverrideData} = None
+    backplate: BackplateData = None
     gizmo_rotation: tuple = None
 
     @staticmethod
@@ -318,6 +342,17 @@ class WorldData:
 
             data.overrides[override_type] = override_data
 
+        def set_backplate():
+            if not rpr.background_override:
+                return
+
+            data.backplate = WorldData.BackplateData()
+            if rpr.background_image:
+                data.backplate.image = rpr.background_image.name
+            else:
+                data.backplate.color = tuple(rpr.background_color)
+            data.backplate.crop = rpr.backplate_crop
+
         data.intensity = rpr.intensity
 
         if rpr.mode == 'IBL':
@@ -328,7 +363,11 @@ class WorldData:
         data.gizmo_rotation = tuple(rpr.gizmo_rotation)
 
         data.overrides = {}
-        set_override('background')
+        if rpr.background_image_type == 'SPHERE':
+            set_override('background')
+        else:
+            set_backplate()
+
         set_override('reflection')
         set_override('refraction')
         set_override('transparency')
@@ -357,7 +396,7 @@ class WorldData:
         def export_override(override_type):
             pyrpr_key = getattr(pyrpr, f'ENVIRONMENT_LIGHT_OVERRIDE_{override_type.upper()}')
             override = self.overrides.get(override_type, None)
-            if override and override.image_type == 'SPHERE':
+            if override:
                 rpr_light = rpr_context.scene.environment_overrides.get(pyrpr_key, None)
                 if not rpr_light:
                     rpr_light = rpr_context.create_environment_light()
@@ -379,25 +418,6 @@ class WorldData:
                 if pyrpr_key in rpr_context.scene.environment_overrides:
                     rpr_context.scene.remove_environment_override(pyrpr_key)
 
-        def export_backplate():
-            override = self.overrides.get('background', None)
-            if override and override.image_type == 'BACKPLATE':
-                if override.image:
-                    image_obj = bpy.data.images[override.image]
-                    try:
-                        rpr_image = image.sync(rpr_context, image_obj)
-                    except ValueError as e:
-                        log.warn(e)
-                        rpr_context.scene.set_background_color(*WARNING_IMAGE_NOT_DEFINED_COLOR)
-                    else:
-                        rpr_context.scene.set_background_image(rpr_image)
-
-                else:
-                    rpr_context.scene.set_background_color(*override.color)
-
-            else:
-                rpr_context.scene.set_background_image(None)
-
         if not self.ibl and not self.sun_sky:
             remove_environment_lights(rpr_context)
             return
@@ -408,7 +428,10 @@ class WorldData:
             self.sun_sky.export(rpr_context, self.gizmo_rotation)
 
         if use_backplate:
-            export_backplate()
+            if self.backplate:
+                self.backplate.export(rpr_context, (rpr_context.width, rpr_context.height))
+            else:
+                rpr_context.scene.set_background_image(None)
 
         export_override('background')
         export_override('reflection')

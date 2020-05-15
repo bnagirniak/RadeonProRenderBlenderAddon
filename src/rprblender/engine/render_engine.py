@@ -404,10 +404,10 @@ class RenderEngine(Engine):
 
         # Environment is synced once per frame
         world.sync(self.rpr_context, scene.world)
-        # if scene.world.rpr.background_image_type == "BACKPLATE":
-        #     # Different Backplate regions should be exported for each render tile
-        #     self.world_backplate = world.Backplate(scene.world.rpr, (self.width, self.height))
-        #     self.world_backplate.export(self.rpr_context)
+        if scene.world.rpr.background_image_type == "BACKPLATE":
+            # Different Backplate regions should be exported for each render tile
+            self.world_backplate = world.Backplate(scene.world.rpr, (self.width, self.height))
+            self.world_backplate.export(self.rpr_context)
 
         # SYNC MOTION BLUR
         self.rpr_context.do_motion_blur = scene.render.use_motion_blur and \

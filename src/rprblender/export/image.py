@@ -104,8 +104,7 @@ class ImagePixels:
             data = np.fromiter(pixels, dtype=np.float32,
                                count=image.size[0] * image.size[1] * image.channels)
 
-        data = np.flipud(data.reshape(image.size[1], image.size[0], image.channels))
-        self.pixels = np.ascontiguousarray(data)
+        self.pixels = data.reshape(image.size[1], image.size[0], image.channels)
 
         self.name = image.name
         self.color_space = image.colorspace_settings.name
@@ -136,7 +135,7 @@ class ImagePixels:
                           y1 + (y2 - y1) * (tile[0][1] + tile[1][1]))
 
         pixels = self.pixels[int(y1): int(y2), int(x1):int(x2), :]
-        rpr_image = rpr_context.create_image_data(None, np.ascontiguousarray(pixels))
+        rpr_image = rpr_context.create_image_data(None, np.ascontiguousarray(np.flipud(pixels)))
         rpr_image.set_name(self.name)
 
         if self.color_space in ('sRGB', 'BD16', 'Filmic Log'):

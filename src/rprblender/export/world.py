@@ -80,108 +80,6 @@ def set_light_rotation(rpr_light, rotation: Tuple[float]) -> np.array:
     return matrix
 
 
-@dataclass(init=False, eq=True)
-class Backplate:
-    """
-    Environment backplate class is a handler of flat background image.
-    Used as an alternative to the 360 degrees IBL-kind Background Override.
-
-    Stores source image pixels cropped to render size as numpy array
-    Exports
-    """
-
-    name: str = None
-
-    source_pixels: image.ImagePixels = field(default=None, repr=False)
-    source_size: Tuple[int, int, int, int] = field(default=None, repr=True)
-
-    def __init__(self, world_data, render_size):
-        if not world_data.background_image:
-            return
-
-        self.name = world_data.background_image.name
-
-        self.source_pixels, self.source_size = self.get_cropped_image(
-            world_data.background_image, render_size
-        )
-
-    @staticmethod
-    def calculate_cropped_size(x1: int, y1: int, x2: int, y2: int) -> tuple:
-        """ Calculate cropped source region size to fit target region aspect ratio """
-        ratio_image = x1 / y1
-        ratio_render = x2 / y2
-
-        # close ratios - no cropping required
-        if math.isclose(ratio_image, ratio_render):
-            return x1, y1
-
-        # crop horizontal size
-        if ratio_image > ratio_render:
-            return y1 * x2 / y2, y1
-
-        # crop vertical size
-        return x1, x1 * y2 / x2
-
-    @staticmethod
-    def calculate_cropped_region(size_x, size_y, target_x, target_y) -> tuple:
-        """ Get region coordinates for cropped image size """
-        x1 = 0
-        y1 = 0
-        x2 = size_x - 1
-        y2 = size_y - 1
-
-        if size_x > target_x:
-            half_size = size_x / 2
-            half_target = target_x / 2
-            x1 = half_size - half_target
-            x2 = half_size + half_target
-        elif size_y > target_y:
-            half_size = size_y / 2
-            half_target = target_y / 2
-            y1 = half_size - half_target
-            y2 = half_size + half_target
-
-        x1 = max(0, int(x1))
-        y1 = max(0, int(y1))
-        x2 = min(size_x, int(x2))
-        y2 = min(size_y, int(y2))
-
-        return x1, y1, x2, y2
-
-    def get_cropped_image(self, texture: bpy.types.Image, render_size: Tuple[int]) \
-            -> Tuple[image.ImagePixels, tuple]:
-        """ Crop source image to render size aspect ration, store pixels and result size """
-        # crop source image size to fit target aspect ratio
-        size = self.calculate_cropped_size(
-            texture.size[0], texture.size[1],
-            render_size[0], render_size[1],
-        )
-
-        # get pixels region for cropped size
-        region = self.calculate_cropped_region(texture.size[0], texture.size[1], size[0], size[1])
-
-        # extract pixels region from source image
-        pixels = image.ImagePixels(texture, region)
-
-        return pixels, pixels.size
-
-    def export(self, rpr_context, tile=None):
-        if not self.source_size:
-            return
-
-        region = None
-        if tile:
-            region = (
-                int(tile[0][0] * self.source_size[0]),
-                int(tile[0][1] * self.source_size[1]),
-                int((tile[0][0] + tile[1][0]) * self.source_size[0]),
-                int((tile[0][1] + tile[1][1]) * self.source_size[1])
-            )
-
-        rpr_image = self.source_pixels.export(rpr_context, region)
-        rpr_context.scene.set_background_image(rpr_image)
-
-
 @dataclass(init=False, eq=True, repr=True)
 class WorldData:
     """ Comparable dataclass which holds all environment settings """
@@ -338,8 +236,6 @@ class WorldData:
             else:
                 override_data.color = tuple(color)
 
-            override_data.image_type = getattr(rpr, f'{override_type}_image_type', 'SPHERE')
-
             data.overrides[override_type] = override_data
 
         def set_backplate():
@@ -445,3 +341,4 @@ class WorldData:
 def sync(rpr_context: RPRContext, world: bpy.types.World):
     data = WorldData.init_from_world(world)
     data.export(rpr_context)
+    return data

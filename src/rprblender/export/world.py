@@ -24,6 +24,7 @@ import mathutils
 import pyrpr
 
 from . import image
+from .image import ImagePixels
 from rprblender.engine.context import RPRContext
 from rprblender.utils import helper_lib
 
@@ -98,23 +99,32 @@ class WorldData:
         color: tuple = None
         image: str = None
         crop: bool = False
+        pixels: ImagePixels = field(default=None, compare=False)
 
-        def export(self, rpr_context, render_size, tile=((0, 0), (1, 1))):
-            if self.image:
+        def __init__(self, rpr):
+            if rpr.background_image:
+                self.image = rpr.background_image.name
                 image_obj = bpy.data.images[self.image]
                 try:
-                    rpr_image = image.ImagePixels(image_obj)\
-                        .export(rpr_context, render_size if self.crop else None, tile)
+                    self.pixels = ImagePixels(image_obj)
 
                 except ValueError as e:
                     log.warn(e)
-                    rpr_context.scene.set_background_color(*WARNING_IMAGE_NOT_DEFINED_COLOR)
-                else:
-                    rpr_context.scene.set_background_image(rpr_image)
+                    self.image = None
+                    self.color = WARNING_IMAGE_NOT_DEFINED_COLOR
+            else:
+                self.color = tuple(rpr.background_color)
+
+            self.crop = rpr.backplate_crop
+
+        def export(self, rpr_context, render_size, tile=((0, 0), (1, 1))):
+            if self.image:
+                rpr_image = self.pixels.export(rpr_context,
+                                               render_size if self.crop else None, tile)
+                rpr_context.scene.set_background_image(rpr_image)
 
             else:
                 rpr_context.scene.set_background_color(*self.color)
-
 
     @dataclass(eq=True)
     class IblData:
@@ -238,17 +248,6 @@ class WorldData:
 
             data.overrides[override_type] = override_data
 
-        def set_backplate():
-            if not rpr.background_override:
-                return
-
-            data.backplate = WorldData.BackplateData()
-            if rpr.background_image:
-                data.backplate.image = rpr.background_image.name
-            else:
-                data.backplate.color = tuple(rpr.background_color)
-            data.backplate.crop = rpr.backplate_crop
-
         data.intensity = rpr.intensity
 
         if rpr.mode == 'IBL':
@@ -261,8 +260,8 @@ class WorldData:
         data.overrides = {}
         if rpr.background_image_type == 'SPHERE':
             set_override('background')
-        else:
-            set_backplate()
+        elif rpr.background_override:
+            data.backplate = WorldData.BackplateData(rpr)
 
         set_override('reflection')
         set_override('refraction')

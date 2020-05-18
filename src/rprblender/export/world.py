@@ -103,19 +103,18 @@ class WorldData:
 
         def __init__(self, rpr):
             if rpr.background_image:
-                self.image = rpr.background_image.name
-                image_obj = bpy.data.images[self.image]
+                image_obj = bpy.data.images[rpr.background_image.name]
                 try:
                     self.pixels = ImagePixels(image_obj)
-
                 except ValueError as e:
                     log.warn(e)
-                    self.image = None
                     self.color = WARNING_IMAGE_NOT_DEFINED_COLOR
+                else:
+                    self.image = rpr.background_image.name
+                    self.crop = rpr.backplate_crop
+
             else:
                 self.color = tuple(rpr.background_color)
-
-            self.crop = rpr.backplate_crop
 
         def export(self, rpr_context, render_size, tile=((0, 0), (1, 1))):
             if self.image:

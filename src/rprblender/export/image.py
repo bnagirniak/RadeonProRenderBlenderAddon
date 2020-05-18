@@ -110,7 +110,7 @@ class ImagePixels:
         self.color_space = image.colorspace_settings.name
 
     def export(self, rpr_context, render_size=None, tile=((0, 0), (1, 1))):
-        """ Export pixels cropped to sub-region coordinates as RPR image """
+        """Export pixels cropped to render and tile size as RPR image"""
 
         image_size = self.pixels.shape[1], self.pixels.shape[0]
         if render_size:
@@ -129,12 +129,17 @@ class ImagePixels:
             x1, y1 = 0, 0
             x2, y2 = image_size
 
-        x1, y1, x2, y2 = (x1 + (x2 - x1) * tile[0][0],
-                          y1 + (y2 - y1) * tile[0][1],
-                          x1 + (x2 - x1) * (tile[0][0] + tile[1][0]),
-                          y1 + (y2 - y1) * (tile[0][1] + tile[1][1]))
+        x1, y1, x2, y2 = (
+            int(x1 + (x2 - x1) * tile[0][0]),
+            int(y1 + (y2 - y1) * tile[0][1]),
+            int(x1 + (x2 - x1) * (tile[0][0] + tile[1][0])),
+            int(y1 + (y2 - y1) * (tile[0][1] + tile[1][1]))
+        )
 
-        pixels = self.pixels[int(y1): int(y2), int(x1):int(x2), :]
+        if x1 == x2 or y1 == y2:
+            return None
+
+        pixels = self.pixels[y1:y2, x1:x2, :]
         rpr_image = rpr_context.create_image_data(None, np.ascontiguousarray(np.flipud(pixels)))
         rpr_image.set_name(self.name)
 

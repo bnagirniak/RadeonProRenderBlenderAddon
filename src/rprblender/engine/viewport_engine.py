@@ -257,7 +257,8 @@ class ViewportEngine(Engine):
 
                 indirect_only = obj.original.indirect_only_get(view_layer=depsgraph.view_layer)
                 object.sync(self.rpr_context, obj,
-                            indirect_only=indirect_only, material_override=material_override)
+                            indirect_only=indirect_only, material_override=material_override,
+                            depsgraph=depsgraph)
 
             # exporting instances
             instances_len = len(depsgraph.object_instances)
@@ -275,7 +276,8 @@ class ViewportEngine(Engine):
 
                 indirect_only = inst.parent.original.indirect_only_get(view_layer=depsgraph.view_layer)
                 instance.sync(self.rpr_context, inst,
-                              indirect_only=indirect_only, material_override=material_override)
+                              indirect_only=indirect_only, material_override=material_override,
+                              depsgraph=depsgraph)
 
             # shadow catcher
             self.rpr_context.sync_catchers(depsgraph.scene.render.film_transparent)

@@ -178,6 +178,16 @@ class MeshData:
         finally:
             bm.free()
 
+    @staticmethod
+    def init_from_bmesh(bm: bmesh.types.BMesh, calc_area=False, obj=None):
+        mesh = bpy.data.meshes.new("")
+        try:
+            bm.to_mesh(mesh)
+            return MeshData.init_from_mesh(mesh, calc_area, obj)
+
+        finally:
+            bpy.data.meshes.remove(mesh)
+
 
 def assign_materials(rpr_context: RPRContext, rpr_shape: pyrpr.Shape, obj: bpy.types.Object,
                      material_override=None) -> bool:
@@ -286,10 +296,26 @@ def sync(rpr_context: RPRContext, obj: bpy.types.Object, **kwargs):
     mesh = kwargs.get("mesh", obj.data)
     material_override = kwargs.get("material_override", None)
     indirect_only = kwargs.get("indirect_only", False)
+    depsgraph = kwargs.get('depsgraph', None)
     log("sync", mesh, obj, "IndirectOnly" if indirect_only else "")
 
     obj_key = object.key(obj)
-    data = MeshData.init_from_mesh(mesh, obj=obj)
+
+    if depsgraph and obj.type == 'MESH' \
+            and obj.modifiers and obj.modifiers[len(obj.modifiers) - 1].type == 'SUBSURF' \
+            and hasattr(bmesh.types.BMesh, 'from_object_modifiers'):
+        obj_orig = bpy.data.objects[obj.name]
+        bm = bmesh.new()
+        try:
+            bm.from_object_modifiers(obj_orig, depsgraph, len(obj.modifiers) - 1)
+            data = MeshData.init_from_bmesh(bm, obj=obj)
+
+        finally:
+            bm.free()
+
+    else:
+        data = MeshData.init_from_mesh(mesh, obj=obj)
+
     if not data:
         rpr_context.create_empty_object(obj_key)
         return

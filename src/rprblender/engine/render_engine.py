@@ -343,7 +343,8 @@ class RenderEngine(Engine):
             # the correct collection visibility info is stored in original object
             indirect_only = obj.original.indirect_only_get(view_layer=view_layer)
             object.sync(self.rpr_context, obj,
-                        indirect_only=indirect_only, material_override=material_override)
+                        indirect_only=indirect_only, material_override=material_override,
+                        depsgraph=depsgraph)
 
             if self.rpr_engine.test_break():
                 log.warn("Syncing stopped by user termination")
@@ -362,7 +363,8 @@ class RenderEngine(Engine):
 
             indirect_only = inst.parent.original.indirect_only_get(view_layer=view_layer)
             instance.sync(self.rpr_context, inst,
-                          indirect_only=indirect_only, material_override=material_override)
+                          indirect_only=indirect_only, material_override=material_override,
+                          depsgraph=depsgraph)
 
             if self.rpr_engine.test_break():
                 log.warn("Syncing stopped by user termination")

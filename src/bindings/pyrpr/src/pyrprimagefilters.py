@@ -346,6 +346,9 @@ class CommandQueue(Object):
     def execute(self):
         ContextExecuteCommandQueue(self.context, self, ffi.NULL, ffi.NULL, ffi.NULL)
 
+    def synchronize(self):
+        SyncronizeQueue(self)
+
     def delete(self):
         self.detach_image_filters()
         super().delete()

@@ -102,6 +102,7 @@ class ImageFilter(metaclass=ABCMeta):
             if isinstance(image, rif.FrameBufferImage):
                 image.update()
 
+        self.command_queue.synchronize()
         self.command_queue.execute()
 
     def get_data(self):

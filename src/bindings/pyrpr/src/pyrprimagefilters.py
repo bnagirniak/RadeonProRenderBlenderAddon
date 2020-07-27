@@ -323,6 +323,9 @@ class ImageFilter(Object):
         else:
             raise TypeError("Incorrect type for ImageFilterSetParameter*", self, name, value)
 
+    def set_compute_type(self, compute_type):
+        ImageFilterSetComputeType(self, compute_type)
+
 
 class CommandQueue(Object):
     core_type_name = 'rif_command_queue'

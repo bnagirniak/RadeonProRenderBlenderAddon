@@ -102,10 +102,10 @@ class ImageFilter(metaclass=ABCMeta):
             if isinstance(image, rif.FrameBufferImage):
                 image.update()
 
-        self.command_queue.synchronize()
         self.command_queue.execute()
 
     def get_data(self):
+        self.command_queue.synchronize()
         return self.output_image.get_data()
 
 
@@ -166,6 +166,7 @@ class ImageFilterML(ImageFilter):
         else:
             self.filter = self.context.create_filter(rif.IMAGE_FILTER_AI_DENOISE)
 
+        self.filter.set_compute_type(rif.COMPUTE_TYPE_FLOAT16)
         self.filter.set_parameter('useHDR', True)
 
         models_path = utils.package_root_dir() / 'data/models'

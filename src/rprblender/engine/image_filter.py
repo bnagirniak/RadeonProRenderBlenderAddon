@@ -13,6 +13,7 @@
 # limitations under the License.
 #********************************************************************
 from abc import ABCMeta, abstractmethod
+import os
 
 import pyrpr
 import pyhybrid
@@ -21,6 +22,11 @@ import pyrprimagefilters as rif
 
 from rprblender import utils
 from rprblender.utils.user_settings import get_user_settings
+
+
+# Setting environment variable to enable using FP16 models.
+# In next RIF versions with variable won't be needed and can be removed.
+os.environ['RIF_AI_FP16_ENABLED'] = "1"
 
 
 class ImageFilter(metaclass=ABCMeta):

@@ -119,7 +119,7 @@ class ViewportSettings:
              (self.border[1][0] / self.screen_width, self.border[1][1] / self.screen_height)))
 
     def adapt_resolution(self, requested_ratio, prev_settings, min_scale):
-        MIN_PIXEL_DIFF = 0.2
+        MIN_PIXEL_DIFF = 0.5
         MIN_RATIO_DIFF = 0.1
 
         # checking with previous settings, if previous resolution

@@ -36,6 +36,10 @@ from rprblender.utils import logging
 log = logging.Log(tag='viewport_engine')
 
 
+MIN_ADAPT_RATIO_DIFF = 0.2
+MIN_ADAPT_RESOLUTION_RATIO_DIFF = 0.1
+
+
 @dataclass(init=False, eq=True)
 class ViewportSettings:
     """
@@ -707,13 +711,13 @@ class ViewportEngine(Engine):
                 self.viewport_settings = viewport_settings
                 self.viewport_settings.export_camera(self.rpr_context.scene.camera)
                 if self.user_settings.adapt_viewport_resolution:
-                    # trying to use previous resolution
+                    # trying to use previous resolution or almost same pixels number
                     max_w, max_h = self.viewport_settings.width, self.viewport_settings.height
                     min_w = max(max_w * self.user_settings.min_viewport_resolution_scale // 100, 1)
                     min_h = max(max_h * self.user_settings.min_viewport_resolution_scale // 100, 1)
                     w, h = self.rpr_context.width, self.rpr_context.height
 
-                    if abs(w / h - max_w / max_h) > 0.1:
+                    if abs(w / h - max_w / max_h) > MIN_ADAPT_RESOLUTION_RATIO_DIFF:
                         scale = math.sqrt(w * h / (max_w * max_h))
                         w, h = int(max_w * scale), int(max_h * scale)
 
@@ -730,9 +734,10 @@ class ViewportEngine(Engine):
                     max_w, max_h = self.viewport_settings.width, self.viewport_settings.height
                     min_w = max(max_w * self.user_settings.min_viewport_resolution_scale // 100, 1)
                     min_h = max(max_h * self.user_settings.min_viewport_resolution_scale // 100, 1)
-                    if abs(1.0 - self.requested_adapt_ratio) > 0.2:
+                    if abs(1.0 - self.requested_adapt_ratio) > MIN_ADAPT_RATIO_DIFF:
                         scale = math.sqrt(self.requested_adapt_ratio)
-                        w, h = int(self.rpr_context.width * scale), int(self.rpr_context.height * scale)
+                        w, h = int(self.rpr_context.width * scale),\
+                               int(self.rpr_context.height * scale)
                     else:
                         w, h = self.rpr_context.width, self.rpr_context.height
 
@@ -741,8 +746,12 @@ class ViewportEngine(Engine):
 
                     self.requested_adapt_ratio = None
                     self.is_resolution_adapted = True
-                    if self.is_resized:
-                        self.restart_render_event.set()
+
+                elif not self.user_settings.adapt_viewport_resolution:
+                    self._resize(self.viewport_settings.width, self.viewport_settings.height)
+
+                if self.is_resized:
+                    self.restart_render_event.set()
 
     def _resize(self, width, height):
         if self.width == width and self.height == height:

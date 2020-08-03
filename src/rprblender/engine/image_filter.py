@@ -24,11 +24,6 @@ from rprblender import utils
 from rprblender.utils.user_settings import get_user_settings
 
 
-# Setting environment variable to enable using FP16 models.
-# In next RIF versions with variable won't be needed and can be removed.
-os.environ['RIF_AI_FP16_ENABLED'] = "1"
-
-
 class ImageFilter(metaclass=ABCMeta):
     def __init__(self, rpr_context: pyrpr.Context, inputs, sigmas, params, width, height,
                  frame_buffer_gl=None):
@@ -172,7 +167,6 @@ class ImageFilterML(ImageFilter):
         else:
             self.filter = self.context.create_filter(rif.IMAGE_FILTER_AI_DENOISE)
 
-        self.filter.set_compute_type(rif.COMPUTE_TYPE_FLOAT16)
         self.filter.set_parameter('useHDR', True)
 
         models_path = utils.package_root_dir() / 'data/models'

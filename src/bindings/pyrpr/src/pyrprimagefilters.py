@@ -291,7 +291,9 @@ class ImageFilter(Object):
         if name in self.parameters and self.parameters[name] == value:
             return
 
-        if isinstance(value, (int, bool)):
+        if name == 'compute_type':
+            ImageFilterSetComputeType(self, value)
+        elif isinstance(value, (int, bool)):
             ImageFilterSetParameter1u(self, pyrpr.encode(name), int(value))
             self.parameters[name] = value
         elif isinstance(value, float):
@@ -322,9 +324,6 @@ class ImageFilter(Object):
             self.parameters[name] = (value, arr)
         else:
             raise TypeError("Incorrect type for ImageFilterSetParameter*", self, name, value)
-
-    def set_compute_type(self, compute_type):
-        ImageFilterSetComputeType(self, compute_type)
 
 
 class CommandQueue(Object):

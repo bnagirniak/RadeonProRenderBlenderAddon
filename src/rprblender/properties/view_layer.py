@@ -119,7 +119,12 @@ class RPR_DenoiserProperties(RPR_Properties):
         description="Use Color AOV only instead of using additional required AOVs",
         default=True
     )
-
+    ml_use_fp16_compute_type: BoolProperty(
+        name="Use Half-Float Compute",
+        description="Use Float16 compute type. It uses less memory and increases denoising speed but with less quality.\n"
+                    "Available only for viewport render.",
+        default=False
+    )
     def get_settings(self, scene, is_final_engine=True):
         return {
             'enable': self.enable and self.is_available(scene, is_final_engine),
@@ -134,6 +139,7 @@ class RPR_DenoiserProperties(RPR_Properties):
             'half_window': self.half_window,
             'bandwidth': self.bandwidth,
             'ml_color_only': self.ml_color_only,
+            'ml_use_fp16_compute_type': self.ml_use_fp16_compute_type,
         }
 
     def is_available(self, scene, is_final_engine=True):

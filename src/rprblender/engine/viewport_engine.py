@@ -192,6 +192,8 @@ class ViewportEngine(Engine):
         self.restart_render_event = threading.Event()
         self.render_lock = threading.Lock()
         self.resolve_lock = threading.Lock()
+        self.denoise_thread: threading.Thread = None
+        self.denoise_event = threading.Event()
 
         self.is_finished = False
         self.is_synced = False
@@ -212,7 +214,9 @@ class ViewportEngine(Engine):
     def stop_render(self):
         self.is_finished = True
         self.restart_render_event.set()
+        self.denoise_event.set()
         self.sync_render_thread.join()
+        self.denoise_thread.join()
 
         self.rpr_context = None
         self.image_filter = None
@@ -344,25 +348,20 @@ class ViewportEngine(Engine):
                         self.rpr_context.render(restart=(iteration == 0))
 
                     iteration += 1
+                    if iteration < MIN_DENOISE_ITERATION:
+                        self.is_denoised = False
 
-                    # resolving
-                    with self.resolve_lock:
-                        self._resolve()
-                        if self.image_filter:
-                            if iteration < MIN_DENOISE_ITERATION:
-                                self.is_denoised = False
+                    if not self.is_denoised:
+                        # resolving
+                        with self.resolve_lock:
+                            self._resolve()
 
-                            elif iteration == next_denoise_iteration:
-                                self.update_image_filter_inputs()
-                                self.image_filter.run()
-                                self.is_denoised = True
-                                # increasing next_denoise_iteration by 2 times,
-                                # but not more then MAX_DENOISE_ITERATION_STEP
-                                next_denoise_iteration += min(next_denoise_iteration,
-                                                              MAX_DENOISE_ITERATION_STEP)
-
-                        else:
-                            self.is_denoised = False
+                    if iteration == next_denoise_iteration:
+                        # increasing next_denoise_iteration by 2 times,
+                        # but not more then MAX_DENOISE_ITERATION_STEP
+                        next_denoise_iteration += min(next_denoise_iteration,
+                                                      MAX_DENOISE_ITERATION_STEP)
+                        self.denoise_event.set()
 
                     self.is_rendered = True
 
@@ -411,12 +410,13 @@ class ViewportEngine(Engine):
                     time_render = time.perf_counter() - time_begin
 
                     if self.image_filter:
-                        # applying denoising
+                        # applying additional denoising in the end of render
                         with self.resolve_lock:
-                            if self.image_filter:
-                                self.update_image_filter_inputs()
-                                self.image_filter.run()
-                                self.is_denoised = True
+                            self._resolve()
+                            self.update_image_filter_inputs()
+                            self.image_filter.run()
+
+                        self.is_denoised = True
 
                         time_render = time.perf_counter() - time_begin
                         notify_status(f"Time: {time_render:.1f} sec | Iteration: {iteration}"
@@ -437,6 +437,24 @@ class ViewportEngine(Engine):
             notify_status(f"{e}.\nPlease see logs for more details.", "ERROR")
 
         log("Finish _do_sync_render")
+
+    def _do_denoise(self):
+        while True:
+            self.denoise_event.wait()
+            self.denoise_event.clear()
+
+            if self.is_finished:
+                break
+
+            if not self.image_filter:
+                continue
+
+            with self.resolve_lock:
+                self._resolve()
+                self.update_image_filter_inputs()
+                self.image_filter.run()
+
+            self.is_denoised = True
 
     def sync(self, context, depsgraph):
         log('Start sync')
@@ -498,6 +516,9 @@ class ViewportEngine(Engine):
         self.space_data = context.space_data
         self.sync_render_thread = threading.Thread(target=self._do_sync_render, args=(depsgraph,))
         self.sync_render_thread.start()
+
+        self.denoise_thread = threading.Thread(target=self._do_denoise)
+        self.denoise_thread.start()
 
         log('Finish sync')
 

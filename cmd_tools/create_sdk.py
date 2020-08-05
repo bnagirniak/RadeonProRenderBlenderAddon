@@ -123,13 +123,13 @@ def copy_rif_sdk():
                     str(sdk_bin_dir / "libRadeonImageFilters.dylib"))
         shutil.copy(str(bin_dir / "libOpenImageDenoise.0.9.0.dylib"),
                     str(sdk_bin_dir / "libOpenImageDenoise.dylib"))
-        shutil.copy(str(bin_dir / "libRadeonML-MPS.0.9.7.dylib"),
-                    str(sdk_bin_dir / "libRadeonML-MPS.dylib"))
+        shutil.copy(str(bin_dir / "libRadeonML_MPS.0.9.7.dylib"),
+                    str(sdk_bin_dir / "libRadeonML_MPS.dylib"))
 
         # adjusting id of RIF libs
         install_name_tool('-id', "@rpath/libRadeonImageFilters.dylib", sdk_bin_dir / "libRadeonImageFilters.dylib")
         install_name_tool('-id', "@rpath/libOpenImageDenoise.dylib", sdk_bin_dir / "libOpenImageDenoise.dylib")
-        install_name_tool('-id', "@rpath/libRadeonML-MPS.dylib", sdk_bin_dir / "libRadeonML-MPS.dylib")
+        install_name_tool('-id', "@rpath/libRadeonML_MPS.dylib", sdk_bin_dir / "libRadeonML_MPS.dylib")
 
     else:
         raise KeyError("Unsupported OS", OS)

@@ -161,7 +161,8 @@ class ImageFilterML(ImageFilter):
         as well as an albedo '''
     def _create_filter(self):
         devices = self.get_devices()
-        if devices.cpu_state:
+        use_oidn = (utils.IS_WIN or utils.IS_MAC) and devices.cpu_state
+        if use_oidn:
             self.filter = self.context.create_filter(rif.IMAGE_FILTER_OPENIMAGE_DENOISE)
         else:
             self.filter = self.context.create_filter(rif.IMAGE_FILTER_AI_DENOISE)

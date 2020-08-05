@@ -51,7 +51,7 @@ class RPR_DenoiserProperties(RPR_Properties):
         name="Filter Type",
         items=items,
         description="Filter type",
-        default='EAW'
+        default='ML'
     )
 
     scale_by_iterations: BoolProperty(
@@ -117,11 +117,11 @@ class RPR_DenoiserProperties(RPR_Properties):
     ml_color_only: BoolProperty(
         name="Use Color AOV only",
         description="Use Color AOV only instead of using additional required AOVs",
-        default=True
+        default=True if not utils.IS_MAC else False
     )
     ml_use_fp16_compute_type: BoolProperty(
-        name="Use Half-Float Compute",
-        description="Use Float16 compute type. It uses less memory and increases denoising speed but with less quality.\n"
+        name="Use 16-bit Compute",
+        description="Reduce precision to 16 bit. It uses less memory and increases denoising speed, but with less quality.\n"
                     "Available only for viewport render.",
         default=False
     )

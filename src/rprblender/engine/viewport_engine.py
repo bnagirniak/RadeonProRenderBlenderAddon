@@ -450,7 +450,8 @@ class ViewportEngine(Engine):
                 continue
 
             with self.resolve_lock:
-                self._resolve()
+                with self.render_lock:
+                    self._resolve()
                 self.update_image_filter_inputs()
                 self.image_filter.run()
 

@@ -578,3 +578,6 @@ class RPRContext2(RPRContext):
                 obj.set_subdivision_factor(obj.subdivision['factor'])
                 obj.set_subdivision_boundary_interop(obj.subdivision['boundary'])
                 obj.set_subdivision_crease_weight(obj.subdivision['crease_weight'])
+
+    def set_render_update_callback(self, func):
+        self.context.set_render_update_callback(func)

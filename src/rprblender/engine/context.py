@@ -565,3 +565,6 @@ class RPRContext2(RPRContext):
 
     def sync_catchers(self, use_transparent_background=False):
         pass
+
+    def set_render_update_callback(self, func):
+        self.context.set_render_update_callback(func)

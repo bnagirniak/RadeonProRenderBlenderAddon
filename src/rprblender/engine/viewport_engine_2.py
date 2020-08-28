@@ -1,183 +1,39 @@
-#**********************************************************************
-# Copyright 2020 Advanced Micro Devices, Inc
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# 
-#     http://www.apache.org/licenses/LICENSE-2.0
-# 
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#********************************************************************
+import asyncio
 import threading
 import time
-import math
-from dataclasses import dataclass
-import traceback
 import textwrap
+import math
+import traceback
 
 import bpy
 import bgl
 from gpu_extras.presets import draw_texture_2d
-from bpy_extras import view3d_utils
 
 import pyrpr
+
 from .engine import Engine
-from rprblender.export import camera, material, world, object, instance, particle
-from rprblender.export.mesh import assign_materials
-from rprblender.utils import gl
+from .viewport_engine import (
+    ViewportSettings, ShadingData, ViewLayerSettings,
+    MIN_ADAPT_RESOLUTION_RATIO_DIFF, MIN_ADAPT_RATIO_DIFF
+)
+from .context import RPRContext2
 from rprblender import utils
 from rprblender.utils.user_settings import get_user_settings
+from rprblender.utils import gl
+
+from rprblender.export import camera, material, world, object, instance, particle
+from rprblender.export.mesh import assign_materials
+
 
 from rprblender.utils import logging
-log = logging.Log(tag='viewport_engine')
+log = logging.Log(tag='viewport_engine_2')
 
 
-MIN_ADAPT_RATIO_DIFF = 0.2
-MIN_ADAPT_RESOLUTION_RATIO_DIFF = 0.1
-
-
-@dataclass(init=False, eq=True)
-class ViewportSettings:
-    """
-    Comparable dataclass which holds render settings for ViewportEngine:
-    - camera viewport settings
-    - render resolution
-    - screen resolution
-    - render border
-    """
-
-    camera_data: camera.CameraData
-    screen_width: int
-    screen_height: int
-    border: tuple
-
-    def __init__(self, context: bpy.types.Context):
-        """Initializes settings from Blender's context"""
-        self.camera_data = camera.CameraData.init_from_context(context)
-        self.screen_width, self.screen_height = context.region.width, context.region.height
-
-        scene = context.scene
-
-        # getting render border
-        x1, y1 = 0, 0
-        x2, y2 = self.screen_width, self.screen_height
-        if context.region_data.view_perspective == 'CAMERA':
-            if scene.render.use_border:
-                # getting border corners from camera view
-
-                # getting screen camera points
-                camera_obj = scene.camera
-                camera_points = camera_obj.data.view_frame(scene=scene)
-                screen_points = tuple(
-                    view3d_utils.location_3d_to_region_2d(context.region,
-                                                          context.space_data.region_3d,
-                                                          camera_obj.matrix_world @ p)
-                    for p in camera_points
-                )
-
-                # getting camera view region
-                x1 = min(p[0] for p in screen_points)
-                x2 = max(p[0] for p in screen_points)
-                y1 = min(p[1] for p in screen_points)
-                y2 = max(p[1] for p in screen_points)
-
-                # adjusting region to border
-                x, y = x1, y1
-                dx, dy = x2 - x1, y2 - y1
-                x1 = int(x + scene.render.border_min_x * dx)
-                x2 = int(x + scene.render.border_max_x * dx)
-                y1 = int(y + scene.render.border_min_y * dy)
-                y2 = int(y + scene.render.border_max_y * dy)
-
-                # adjusting to region screen resolution
-                x1 = max(min(x1, self.screen_width), 0)
-                x2 = max(min(x2, self.screen_width), 0)
-                y1 = max(min(y1, self.screen_height), 0)
-                y2 = max(min(y2, self.screen_height), 0)
-
-        else:
-            if context.space_data.use_render_border:
-                # getting border corners from viewport camera
-
-                x, y = x1, y1
-                dx, dy = x2 - x1, y2 - y1
-                x1 = int(x + context.space_data.render_border_min_x * dx)
-                x2 = int(x + context.space_data.render_border_max_x * dx)
-                y1 = int(y + context.space_data.render_border_min_y * dy)
-                y2 = int(y + context.space_data.render_border_max_y * dy)
-
-        # getting render resolution and render border
-        width, height = x2 - x1, y2 - y1
-        self.border = (x1, y1), (width, height)
-
-    def export_camera(self, rpr_camera):
-        """Exports camera settings with render border"""
-        self.camera_data.export(rpr_camera,
-            ((self.border[0][0] / self.screen_width, self.border[0][1] / self.screen_height),
-             (self.border[1][0] / self.screen_width, self.border[1][1] / self.screen_height)))
-
-    @property
-    def width(self):
-        return self.border[1][0]
-
-    @property
-    def height(self):
-        return self.border[1][1]
-
-
-@dataclass(init=False, eq=True)
-class ShadingData:
-    type: str
-    use_scene_lights: bool = True
-    use_scene_world: bool = True
-    studio_light: str = None
-    studio_light_rotate_z: float = 0.0
-    studio_light_background_alpha: float = 0.0
-    studio_light_intensity: float = 1.0
-
-    def __init__(self, context: bpy.types.Context):
-        shading = context.area.spaces.active.shading
-
-        self.type = shading.type
-        if self.type == 'RENDERED':
-            self.use_scene_lights = shading.use_scene_lights_render
-            self.use_scene_world = shading.use_scene_world_render
-        else:
-            self.use_scene_lights = shading.use_scene_lights
-            self.use_scene_world = shading.use_scene_world
-
-        if not self.use_scene_world:
-            self.studio_light = shading.selected_studio_light.path
-            if not self.studio_light:
-                self.studio_light = str(utils.blender_data_dir() /
-                                        "studiolights/world" / shading.studio_light)
-            self.studio_light_rotate_z = shading.studiolight_rotate_z
-            self.studio_light_background_alpha = shading.studiolight_background_alpha
-            if hasattr(shading, "studiolight_intensity"):  # parameter added in Blender 2.81
-                self.studio_light_intensity = shading.studiolight_intensity
-
-
-@dataclass(init=False, eq=True)
-class ViewLayerSettings:
-    """
-    Comparable dataclass which holds active view layer settings for ViewportEngine:
-    - override material
-    """
-
-    material_override: bpy.types.Material = None
-
-    def __init__(self, view_layer: bpy.types.ViewLayer):
-        self.material_override = view_layer.material_override
-
-
-class ViewportEngine(Engine):
+class ViewportEngine2(Engine):
     """ Viewport render engine """
 
     TYPE = 'VIEWPORT'
+    _RPRContext = RPRContext2
 
     def __init__(self, rpr_engine):
         super().__init__(rpr_engine)
@@ -252,7 +108,8 @@ class ViewportEngine(Engine):
                     raise FinishRender
 
                 time_sync = time.perf_counter() - time_begin
-                notify_status(f"Time {time_sync:.1f} | Object ({i}/{objects_len}): {obj.name}", "Sync")
+                notify_status(f"Time {time_sync:.1f} | Object ({i}/{objects_len}): {obj.name}",
+                              "Sync")
 
                 indirect_only = obj.original.indirect_only_get(view_layer=depsgraph.view_layer)
                 object.sync(self.rpr_context, obj,
@@ -273,7 +130,8 @@ class ViewportEngine(Engine):
                     notify_status(f"Time {time_sync:.1f} | Instances {instances_percent}%", "Sync")
                     last_instances_percent = instances_percent
 
-                indirect_only = inst.parent.original.indirect_only_get(view_layer=depsgraph.view_layer)
+                indirect_only = inst.parent.original.indirect_only_get(
+                    view_layer=depsgraph.view_layer)
                 instance.sync(self.rpr_context, inst,
                               indirect_only=indirect_only, material_override=material_override,
                               frame_current=frame_current)
@@ -318,7 +176,7 @@ class ViewportEngine(Engine):
                         # clears restart_render_event, prepares to start rendering
                         self.restart_render_event.clear()
                         iteration = 0
-                        
+
                         if self.is_resized:
                             if not self.rpr_context.gl_interop:
                                 # When gl_interop is not enabled, than resize is better to do in
@@ -360,14 +218,15 @@ class ViewportEngine(Engine):
                         self.requested_adapt_ratio = target_time / iteration_time
 
                     if self.render_iterations > 0:
-                        info_str = f"Time: {time_render:.1f} sec"\
+                        info_str = f"Time: {time_render:.1f} sec" \
                                    f" | Iteration: {iteration}/{self.render_iterations}"
                     else:
-                        info_str = f"Time: {time_render:.1f}/{self.render_time} sec"\
+                        info_str = f"Time: {time_render:.1f}/{self.render_time} sec" \
                                    f" | Iteration: {iteration}"
 
                     if is_adaptive_active:
-                        active_pixels = self.rpr_context.get_info(pyrpr.CONTEXT_ACTIVE_PIXEL_COUNT, int)
+                        active_pixels = self.rpr_context.get_info(pyrpr.CONTEXT_ACTIVE_PIXEL_COUNT,
+                                                                  int)
                         adaptive_progress = max((all_pixels - active_pixels) / all_pixels, 0.0)
                         info_str += f" | Adaptive Sampling: {math.floor(adaptive_progress * 100)}%"
 
@@ -499,8 +358,10 @@ class ViewportEngine(Engine):
 
         # get supported updates and sort by priorities
         updates = []
-        for obj_type in (bpy.types.Scene, bpy.types.World, bpy.types.Material, bpy.types.Object, bpy.types.Collection):
-            updates.extend(update for update in depsgraph.updates if isinstance(update.id, obj_type))
+        for obj_type in (bpy.types.Scene, bpy.types.World, bpy.types.Material, bpy.types.Object,
+                         bpy.types.Collection):
+            updates.extend(
+                update for update in depsgraph.updates if isinstance(update.id, obj_type))
 
         sync_collection = False
         sync_world = False
@@ -553,7 +414,7 @@ class ViewportEngine(Engine):
                     indirect_only = obj.original.indirect_only_get(view_layer=depsgraph.view_layer)
                     active_and_mode_changed = mode_updated and context.active_object == obj.original
                     is_updated |= object.sync_update(self.rpr_context, obj,
-                                                     update.is_updated_geometry or active_and_mode_changed, 
+                                                     update.is_updated_geometry or active_and_mode_changed,
                                                      update.is_updated_transform,
                                                      indirect_only=indirect_only,
                                                      material_override=material_override,
@@ -748,7 +609,7 @@ class ViewportEngine(Engine):
                     min_h = max(max_h * self.user_settings.min_viewport_resolution_scale // 100, 1)
                     if abs(1.0 - self.requested_adapt_ratio) > MIN_ADAPT_RATIO_DIFF:
                         scale = math.sqrt(self.requested_adapt_ratio)
-                        w, h = int(self.rpr_context.width * scale),\
+                        w, h = int(self.rpr_context.width * scale), \
                                int(self.rpr_context.height * scale)
                     else:
                         w, h = self.rpr_context.width, self.rpr_context.height
@@ -897,7 +758,8 @@ class ViewportEngine(Engine):
                     assign_materials(self.rpr_context, inst_obj, inst.object)
                     res = True
             else:
-                indirect_only = inst.parent.original.indirect_only_get(view_layer=depsgraph.view_layer)
+                indirect_only = inst.parent.original.indirect_only_get(
+                    view_layer=depsgraph.view_layer)
                 instance.sync(self.rpr_context, inst,
                               indirect_only=indirect_only, material_override=material_override,
                               frame_current=frame_current)
@@ -921,7 +783,8 @@ class ViewportEngine(Engine):
         for obj in objects:
             rpr_material = material.sync_update(self.rpr_context, active_mat, obj=obj)
             rpr_volume = material.sync_update(self.rpr_context, active_mat, 'Volume', obj=obj)
-            rpr_displacement = material.sync_update(self.rpr_context, active_mat, 'Displacement', obj=obj)
+            rpr_displacement = material.sync_update(self.rpr_context, active_mat, 'Displacement',
+                                                    obj=obj)
 
             if not rpr_material and not rpr_volume and not rpr_displacement:
                 continue
@@ -985,7 +848,7 @@ class ViewportEngine(Engine):
         for obj in super().depsgraph_objects(depsgraph, with_camera):
             if obj.type == 'LIGHT' and not self.shading_data.use_scene_lights:
                 continue
-            
+
             # check for local view visability
             if not obj.visible_in_viewport_get(self.space_data):
                 continue
@@ -999,3 +862,4 @@ class ViewportEngine(Engine):
                 continue
 
             yield instance
+

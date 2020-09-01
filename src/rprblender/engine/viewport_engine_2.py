@@ -4,6 +4,8 @@ import time
 import textwrap
 import math
 import traceback
+import queue
+import functools
 
 import bpy
 import bgl
@@ -14,7 +16,8 @@ import pyrpr
 from .engine import Engine
 from .viewport_engine import (
     ViewportSettings, ShadingData, ViewLayerSettings,
-    MIN_ADAPT_RESOLUTION_RATIO_DIFF, MIN_ADAPT_RATIO_DIFF
+    MIN_ADAPT_RESOLUTION_RATIO_DIFF, MIN_ADAPT_RATIO_DIFF,
+    draw_texture
 )
 from .context import RPRContext2
 from rprblender import utils
@@ -65,7 +68,61 @@ class ViewportEngine2(Engine):
 
         self.user_settings = get_user_settings()
 
+        #----------------------
+        self.tasks_thread: threading.Thread = None
+        self.tasks_queue = queue.Queue()
+
+    def _do_tasks(self):
+        while True:
+            task = self.tasks_queue.get()
+            if task is None:
+                break
+
+            task()
+
+    def add_task(self, task, *args, **kwargs):
+        self.tasks_queue.put(functools.partial(self.task_sync_object, *args, **kwargs))
+
+    def task_finish(self):
+        self.tasks_queue.put(None)
+
     def stop_render(self):
+        self.task_finish()
+        self.tasks_thread.join()
+
+    def notify_status(self, info, status):
+        """ Display export progress status """
+        wrap_info = textwrap.fill(info, 120)
+        self.rpr_engine.update_stats(status, wrap_info)
+        log(status, wrap_info)
+
+        # requesting blender to call draw()
+        self.rpr_engine.tag_redraw()
+
+    def task_sync_object(self, obj, depsgraph):
+        if self.is_finished:
+            self.task_finish()
+
+        if obj is None:
+            self.is_synced = True
+            self.notify_status("Finished", "Sync")
+            return
+
+        self.notify_status(f"{obj.name}", "Sync")
+
+        object.sync(self.rpr_context, obj)
+
+    def task_sync_camera(self, context):
+        viewport_settings = ViewportSettings(context)
+        self.viewport_settings.export_camera(self.rpr_context.scene.camera)
+
+    def task_resize(self):
+        viewport_settings = ViewportSettings(context)
+
+        self.viewport_settings.export_camera(self.rpr_context.scene.camera)
+        self._resize(self.viewport_settings.width, self.viewport_settings.height)
+
+    def stop_render__(self):
         self.is_finished = True
         self.restart_render_event.set()
         self.sync_render_thread.join()
@@ -338,8 +395,14 @@ class ViewportEngine2(Engine):
         self.view_mode = context.mode
         self.space_data = context.space_data
         self.selected_objects = context.selected_objects
-        self.sync_render_thread = threading.Thread(target=self._do_sync_render, args=(depsgraph,))
-        self.sync_render_thread.start()
+
+        self.tasks_thread = threading.Thread(target=self._do_tasks)
+        self.tasks_thread.start()
+
+        for obj in self.depsgraph_objects(depsgraph):
+            self.tasks_queue.put(functools.partial(self.task_sync_object, obj, depsgraph))
+
+        self.add_task(self.task_sync_object, None, depsgraph)
 
         log('Finish sync')
 
@@ -446,58 +509,6 @@ class ViewportEngine2(Engine):
         if is_updated:
             self.restart_render_event.set()
 
-    @staticmethod
-    def _draw_texture(texture_id, x, y, width, height):
-        # INITIALIZATION
-
-        # Getting shader program
-        shader_program = bgl.Buffer(bgl.GL_INT, 1)
-        bgl.glGetIntegerv(bgl.GL_CURRENT_PROGRAM, shader_program)
-
-        # Generate vertex array
-        vertex_array = bgl.Buffer(bgl.GL_INT, 1)
-        bgl.glGenVertexArrays(1, vertex_array)
-
-        texturecoord_location = bgl.glGetAttribLocation(shader_program[0], "texCoord")
-        position_location = bgl.glGetAttribLocation(shader_program[0], "pos")
-
-        # Generate geometry buffers for drawing textured quad
-        position = [x, y, x + width, y, x + width, y + height, x, y + height]
-        position = bgl.Buffer(bgl.GL_FLOAT, len(position), position)
-        texcoord = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]
-        texcoord = bgl.Buffer(bgl.GL_FLOAT, len(texcoord), texcoord)
-
-        vertex_buffer = bgl.Buffer(bgl.GL_INT, 2)
-        bgl.glGenBuffers(2, vertex_buffer)
-        bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, vertex_buffer[0])
-        bgl.glBufferData(bgl.GL_ARRAY_BUFFER, 32, position, bgl.GL_STATIC_DRAW)
-        bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, vertex_buffer[1])
-        bgl.glBufferData(bgl.GL_ARRAY_BUFFER, 32, texcoord, bgl.GL_STATIC_DRAW)
-        bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, 0)
-
-        # DRAWING
-        bgl.glActiveTexture(bgl.GL_TEXTURE0)
-        bgl.glBindTexture(bgl.GL_TEXTURE_2D, texture_id)
-
-        bgl.glBindVertexArray(vertex_array[0])
-        bgl.glEnableVertexAttribArray(texturecoord_location)
-        bgl.glEnableVertexAttribArray(position_location)
-
-        bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, vertex_buffer[0])
-        bgl.glVertexAttribPointer(position_location, 2, bgl.GL_FLOAT, bgl.GL_FALSE, 0, None)
-        bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, vertex_buffer[1])
-        bgl.glVertexAttribPointer(texturecoord_location, 2, bgl.GL_FLOAT, bgl.GL_FALSE, 0, None)
-        bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, 0)
-
-        bgl.glDrawArrays(bgl.GL_TRIANGLE_FAN, 0, 4)
-
-        bgl.glBindVertexArray(0)
-        bgl.glBindTexture(bgl.GL_TEXTURE_2D, 0)
-
-        # DELETING
-        bgl.glDeleteBuffers(2, vertex_buffer)
-        bgl.glDeleteVertexArrays(1, vertex_array)
-
     def _get_render_image(self):
         ''' This is only called for non-GL interop image gets '''
         if utils.IS_MAC:
@@ -507,6 +518,13 @@ class ViewportEngine2(Engine):
             return self.rpr_context.get_image()
 
     def draw(self, context):
+        log("Draw")
+        if not self.is_synced:
+            return
+
+
+
+    def draw__(self, context):
         log("Draw")
 
         if not self.is_synced or self.is_finished:
@@ -542,8 +560,8 @@ class ViewportEngine2(Engine):
                 self.rpr_engine.bind_display_space_shader(scene)
 
                 # note this has to draw to region size, not scaled down size
-                self._draw_texture(texture_id, *self.viewport_settings.border[0],
-                                   *self.viewport_settings.border[1])
+                draw_texture(texture_id, *self.viewport_settings.border[0],
+                             *self.viewport_settings.border[1])
 
                 self.rpr_engine.unbind_display_space_shader()
                 bgl.glDisable(bgl.GL_BLEND)
@@ -862,4 +880,3 @@ class ViewportEngine2(Engine):
                 continue
 
             yield instance
-

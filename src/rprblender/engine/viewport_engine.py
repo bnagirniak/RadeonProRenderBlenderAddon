@@ -174,6 +174,58 @@ class ViewLayerSettings:
         self.material_override = view_layer.material_override
 
 
+def draw_texture(texture_id, x, y, width, height):
+    # INITIALIZATION
+
+    # Getting shader program
+    shader_program = bgl.Buffer(bgl.GL_INT, 1)
+    bgl.glGetIntegerv(bgl.GL_CURRENT_PROGRAM, shader_program)
+
+    # Generate vertex array
+    vertex_array = bgl.Buffer(bgl.GL_INT, 1)
+    bgl.glGenVertexArrays(1, vertex_array)
+
+    texturecoord_location = bgl.glGetAttribLocation(shader_program[0], "texCoord")
+    position_location = bgl.glGetAttribLocation(shader_program[0], "pos")
+
+    # Generate geometry buffers for drawing textured quad
+    position = [x, y, x + width, y, x + width, y + height, x, y + height]
+    position = bgl.Buffer(bgl.GL_FLOAT, len(position), position)
+    texcoord = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]
+    texcoord = bgl.Buffer(bgl.GL_FLOAT, len(texcoord), texcoord)
+
+    vertex_buffer = bgl.Buffer(bgl.GL_INT, 2)
+    bgl.glGenBuffers(2, vertex_buffer)
+    bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, vertex_buffer[0])
+    bgl.glBufferData(bgl.GL_ARRAY_BUFFER, 32, position, bgl.GL_STATIC_DRAW)
+    bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, vertex_buffer[1])
+    bgl.glBufferData(bgl.GL_ARRAY_BUFFER, 32, texcoord, bgl.GL_STATIC_DRAW)
+    bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, 0)
+
+    # DRAWING
+    bgl.glActiveTexture(bgl.GL_TEXTURE0)
+    bgl.glBindTexture(bgl.GL_TEXTURE_2D, texture_id)
+
+    bgl.glBindVertexArray(vertex_array[0])
+    bgl.glEnableVertexAttribArray(texturecoord_location)
+    bgl.glEnableVertexAttribArray(position_location)
+
+    bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, vertex_buffer[0])
+    bgl.glVertexAttribPointer(position_location, 2, bgl.GL_FLOAT, bgl.GL_FALSE, 0, None)
+    bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, vertex_buffer[1])
+    bgl.glVertexAttribPointer(texturecoord_location, 2, bgl.GL_FLOAT, bgl.GL_FALSE, 0, None)
+    bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, 0)
+
+    bgl.glDrawArrays(bgl.GL_TRIANGLE_FAN, 0, 4)
+
+    bgl.glBindVertexArray(0)
+    bgl.glBindTexture(bgl.GL_TEXTURE_2D, 0)
+
+    # DELETING
+    bgl.glDeleteBuffers(2, vertex_buffer)
+    bgl.glDeleteVertexArrays(1, vertex_array)
+
+
 class ViewportEngine(Engine):
     """ Viewport render engine """
 
@@ -585,58 +637,6 @@ class ViewportEngine(Engine):
         if is_updated:
             self.restart_render_event.set()
 
-    @staticmethod
-    def _draw_texture(texture_id, x, y, width, height):
-        # INITIALIZATION
-
-        # Getting shader program
-        shader_program = bgl.Buffer(bgl.GL_INT, 1)
-        bgl.glGetIntegerv(bgl.GL_CURRENT_PROGRAM, shader_program)
-
-        # Generate vertex array
-        vertex_array = bgl.Buffer(bgl.GL_INT, 1)
-        bgl.glGenVertexArrays(1, vertex_array)
-
-        texturecoord_location = bgl.glGetAttribLocation(shader_program[0], "texCoord")
-        position_location = bgl.glGetAttribLocation(shader_program[0], "pos")
-
-        # Generate geometry buffers for drawing textured quad
-        position = [x, y, x + width, y, x + width, y + height, x, y + height]
-        position = bgl.Buffer(bgl.GL_FLOAT, len(position), position)
-        texcoord = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]
-        texcoord = bgl.Buffer(bgl.GL_FLOAT, len(texcoord), texcoord)
-
-        vertex_buffer = bgl.Buffer(bgl.GL_INT, 2)
-        bgl.glGenBuffers(2, vertex_buffer)
-        bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, vertex_buffer[0])
-        bgl.glBufferData(bgl.GL_ARRAY_BUFFER, 32, position, bgl.GL_STATIC_DRAW)
-        bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, vertex_buffer[1])
-        bgl.glBufferData(bgl.GL_ARRAY_BUFFER, 32, texcoord, bgl.GL_STATIC_DRAW)
-        bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, 0)
-
-        # DRAWING
-        bgl.glActiveTexture(bgl.GL_TEXTURE0)
-        bgl.glBindTexture(bgl.GL_TEXTURE_2D, texture_id)
-
-        bgl.glBindVertexArray(vertex_array[0])
-        bgl.glEnableVertexAttribArray(texturecoord_location)
-        bgl.glEnableVertexAttribArray(position_location)
-
-        bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, vertex_buffer[0])
-        bgl.glVertexAttribPointer(position_location, 2, bgl.GL_FLOAT, bgl.GL_FALSE, 0, None)
-        bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, vertex_buffer[1])
-        bgl.glVertexAttribPointer(texturecoord_location, 2, bgl.GL_FLOAT, bgl.GL_FALSE, 0, None)
-        bgl.glBindBuffer(bgl.GL_ARRAY_BUFFER, 0)
-
-        bgl.glDrawArrays(bgl.GL_TRIANGLE_FAN, 0, 4)
-
-        bgl.glBindVertexArray(0)
-        bgl.glBindTexture(bgl.GL_TEXTURE_2D, 0)
-
-        # DELETING
-        bgl.glDeleteBuffers(2, vertex_buffer)
-        bgl.glDeleteVertexArrays(1, vertex_array)
-
     def _get_render_image(self):
         ''' This is only called for non-GL interop image gets '''
         if utils.IS_MAC:
@@ -681,8 +681,8 @@ class ViewportEngine(Engine):
                 self.rpr_engine.bind_display_space_shader(scene)
 
                 # note this has to draw to region size, not scaled down size
-                self._draw_texture(texture_id, *self.viewport_settings.border[0],
-                                   *self.viewport_settings.border[1])
+                draw_texture(texture_id, *self.viewport_settings.border[0],
+                             *self.viewport_settings.border[1])
 
                 self.rpr_engine.unbind_display_space_shader()
                 bgl.glDisable(bgl.GL_BLEND)

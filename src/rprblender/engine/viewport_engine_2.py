@@ -36,7 +36,7 @@ class ViewportEngine2(Engine):
     """ Viewport render engine """
 
     TYPE = 'VIEWPORT'
-    _RPRContext = RPRContext2
+    # _RPRContext = RPRContext2
 
     def __init__(self, rpr_engine):
         super().__init__(rpr_engine)
@@ -81,7 +81,7 @@ class ViewportEngine2(Engine):
             task()
 
     def add_task(self, task, *args, **kwargs):
-        self.tasks_queue.put(functools.partial(self.task_sync_object, *args, **kwargs))
+        self.tasks_queue.put(functools.partial(task, *args, **kwargs))
 
     def task_finish(self):
         self.tasks_queue.put(None)
@@ -112,15 +112,21 @@ class ViewportEngine2(Engine):
 
         object.sync(self.rpr_context, obj)
 
-    def task_sync_camera(self, context):
-        viewport_settings = ViewportSettings(context)
-        self.viewport_settings.export_camera(self.rpr_context.scene.camera)
+    def task_sync_camera(self, viewport_settings):
+        viewport_settings.export_camera(self.rpr_context.scene.camera)
 
-    def task_resize(self):
-        viewport_settings = ViewportSettings(context)
+    def task_resize(self, width, height):
+        self.rpr_context.resize(width, height)
+        self.add_task(self.task_render, 0)
 
-        self.viewport_settings.export_camera(self.rpr_context.scene.camera)
-        self._resize(self.viewport_settings.width, self.viewport_settings.height)
+    def task_render(self, iteration):
+        self.rpr_context.set_parameter(pyrpr.CONTEXT_FRAMECOUNT, iteration)
+        self.rpr_context.render(restart=(iteration == 0))
+        self.rpr_context.resolve()
+        self.is_rendered = True
+        self.add_task(self.task_render, iteration + 1)
+        self.notify_status(f"Iteration: {iteration}", "Render")
+
 
     def stop_render__(self):
         self.is_finished = True
@@ -400,7 +406,7 @@ class ViewportEngine2(Engine):
         self.tasks_thread.start()
 
         for obj in self.depsgraph_objects(depsgraph):
-            self.tasks_queue.put(functools.partial(self.task_sync_object, obj, depsgraph))
+            self.add_task(self.task_sync_object, obj, depsgraph)
 
         self.add_task(self.task_sync_object, None, depsgraph)
 
@@ -520,6 +526,17 @@ class ViewportEngine2(Engine):
     def draw(self, context):
         log("Draw")
         if not self.is_synced:
+            return
+
+        if not self.viewport_settings:
+            self.viewport_settings = ViewportSettings(context)
+            self.add_task(self.task_sync_camera, self.viewport_settings)
+            self.add_task(self.task_resize, self.viewport_settings.width,
+                                            self.viewport_settings.height)
+            self.gl_texture = gl.GLTexture(self.viewport_settings.width,
+                                           self.viewport_settings.height)
+
+        if not self.is_rendered:
             return
 
 

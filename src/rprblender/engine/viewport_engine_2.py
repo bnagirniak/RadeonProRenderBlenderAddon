@@ -71,6 +71,15 @@ class ViewportEngine2(Engine):
         #----------------------
         self.tasks_thread: threading.Thread = None
         self.tasks_queue = queue.Queue()
+        self.rendered_image = None
+        self.iteration = 0
+
+        self.context = None
+        self.depsgraph = None
+
+    @property
+    def scene(self):
+        return self.depsgraph.scene
 
     def _do_tasks(self):
         while True:
@@ -117,16 +126,118 @@ class ViewportEngine2(Engine):
 
     def task_resize(self, width, height):
         self.rpr_context.resize(width, height)
-        self.add_task(self.task_render, 0)
+        self.add_task(self.task_restart_render)
 
-    def task_render(self, iteration):
-        self.rpr_context.set_parameter(pyrpr.CONTEXT_FRAMECOUNT, iteration)
-        self.rpr_context.render(restart=(iteration == 0))
+    def task_restart_render(self):
+        self.iteration = 0
+        self.add_task(self.task_render)
+
+    def task_render(self):
+        self.rpr_context.set_parameter(pyrpr.CONTEXT_FRAMECOUNT, self.iteration)
+        self.rpr_context.render(restart=(self.iteration == 0))
         self.rpr_context.resolve()
         self.is_rendered = True
-        self.add_task(self.task_render, iteration + 1)
-        self.notify_status(f"Iteration: {iteration}", "Render")
+        self.rendered_image = self.rpr_context.get_image()
+        self.iteration += 1
+        if self.iteration < self.render_iterations:
+            self.add_task(self.task_render)
+        self.notify_status(f"Iteration: {self.iteration}", "Render")
 
+    def task_sync_update(self, context, depsgraph):
+        if context.selected_objects != self.selected_objects:
+            # only a selection change
+            self.selected_objects = context.selected_objects
+            return
+
+        frame_current = depsgraph.scene.frame_current
+
+        # get supported updates and sort by priorities
+        updates = []
+        for obj_type in (bpy.types.Scene, bpy.types.World, bpy.types.Material, bpy.types.Object,
+                         bpy.types.Collection):
+            updates.extend(
+                update for update in depsgraph.updates if isinstance(update.id, obj_type))
+
+        sync_collection = False
+        sync_world = False
+        is_updated = False
+        is_obj_updated = False
+
+        material_override = depsgraph.view_layer.material_override
+
+        shading_data = ShadingData(context)
+        if self.shading_data != shading_data:
+            sync_world = True
+
+            if self.shading_data.use_scene_lights != shading_data.use_scene_lights:
+                sync_collection = True
+
+            self.shading_data = shading_data
+
+        self.rpr_context.blender_data['depsgraph'] = depsgraph
+
+        # if view mode changed need to sync collections
+        mode_updated = False
+        if self.view_mode != context.mode:
+            self.view_mode = context.mode
+            mode_updated = True
+
+        for update in updates:
+            obj = update.id
+            log("sync_update", obj)
+            if isinstance(obj, bpy.types.Scene):
+                is_updated |= self.update_render(obj, depsgraph.view_layer)
+
+                # Outliner object visibility change will provide us only bpy.types.Scene update
+                # That's why we need to sync objects collection in the end
+                sync_collection = True
+
+                if is_updated:
+                    self.is_resolution_adapted = False
+
+                continue
+
+            if isinstance(obj, bpy.types.Material):
+                is_updated |= self.update_material_on_scene_objects(obj, depsgraph)
+                continue
+
+            if isinstance(obj, bpy.types.Object):
+                if obj.type == 'CAMERA':
+                    continue
+
+                indirect_only = obj.original.indirect_only_get(view_layer=depsgraph.view_layer)
+                active_and_mode_changed = mode_updated and context.active_object == obj.original
+                is_updated |= object.sync_update(self.rpr_context, obj,
+                                                 update.is_updated_geometry or active_and_mode_changed,
+                                                 update.is_updated_transform,
+                                                 indirect_only=indirect_only,
+                                                 material_override=material_override,
+                                                 frame_current=frame_current)
+                is_obj_updated |= is_updated
+                continue
+
+            if isinstance(obj, bpy.types.World):
+                sync_world = True
+
+            if isinstance(obj, bpy.types.Collection):
+                sync_collection = True
+                continue
+
+        if sync_world:
+            world_settings = self._get_world_settings(depsgraph)
+            if self.world_settings != world_settings:
+                self.world_settings = world_settings
+                self.world_settings.export(self.rpr_context)
+                is_updated = True
+
+        if sync_collection:
+            is_updated |= self.sync_objects_collection(depsgraph)
+
+        if is_obj_updated:
+            self.rpr_context.sync_catchers()
+
+        if is_updated:
+            pass
 
     def stop_render__(self):
         self.is_finished = True
@@ -344,6 +455,8 @@ class ViewportEngine2(Engine):
 
     def sync(self, context, depsgraph):
         log('Start sync')
+        self.context = context
+        self.depsgraph = depsgraph
 
         scene = depsgraph.scene
         viewport_limits = scene.rpr.viewport_limits
@@ -411,6 +524,7 @@ class ViewportEngine2(Engine):
         self.add_task(self.task_sync_object, None, depsgraph)
 
         log('Finish sync')
+
 
     def sync_update(self, context, depsgraph):
         """ sync just the updated things """
@@ -536,9 +650,32 @@ class ViewportEngine2(Engine):
             self.gl_texture = gl.GLTexture(self.viewport_settings.width,
                                            self.viewport_settings.height)
 
-        if not self.is_rendered:
+        if self.rendered_image is None:
             return
 
+        def draw_(texture_id):
+            scene = context.scene
+            if scene.rpr.render_mode in ('WIREFRAME', 'MATERIAL_INDEX',
+                                         'POSITION', 'NORMAL', 'TEXCOORD'):
+                # Draw without color management
+                draw_texture_2d(texture_id, self.viewport_settings.border[0],
+                                *self.viewport_settings.border[1])
+
+            else:
+                # Bind shader that converts from scene linear to display space,
+                bgl.glEnable(bgl.GL_BLEND)
+                bgl.glBlendFunc(bgl.GL_ONE, bgl.GL_ONE_MINUS_SRC_ALPHA)
+                self.rpr_engine.bind_display_space_shader(scene)
+
+                # note this has to draw to region size, not scaled down size
+                draw_texture(texture_id, *self.viewport_settings.border[0],
+                             *self.viewport_settings.border[1])
+
+                self.rpr_engine.unbind_display_space_shader()
+                bgl.glDisable(bgl.GL_BLEND)
+
+        self.gl_texture.set_image(self.rendered_image)
+        draw_(self.gl_texture.texture_id)
 
 
     def draw__(self, context):

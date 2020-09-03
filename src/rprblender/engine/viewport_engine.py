@@ -47,7 +47,6 @@ class ViewportEngine(ViewportEngineBase):
     def __init__(self, rpr_engine):
         super().__init__(rpr_engine)
 
-        self.gl_texture: gl.GLTexture = None
         self.viewport_settings: ViewportSettings = None
         self.world_settings: world.WorldData = None
         self.shading_data: ShadingData = None

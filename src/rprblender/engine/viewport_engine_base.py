@@ -234,6 +234,8 @@ class ViewportEngineBase(Engine):
     def __init__(self, rpr_engine):
         super().__init__(rpr_engine)
 
+        self.gl_texture: gl.GLTexture = None
+
         self.shading_data = None
         self.space_data = None
         self.user_settings = get_user_settings()

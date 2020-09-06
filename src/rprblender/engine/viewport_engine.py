@@ -26,7 +26,7 @@ from bpy_extras import view3d_utils
 
 import pyrpr
 from .engine import Engine
-from rprblender.export import camera, material, world, object, instance, particle
+from rprblender.export import camera, material, world, object, instance
 from rprblender.export.mesh import assign_materials
 from rprblender.utils import gl
 from rprblender import utils
@@ -999,9 +999,3 @@ class ViewportEngine(Engine):
                 continue
 
             yield instance
-        
-
-from .context import RPRContext2
-
-class ViewportEngine2(ViewportEngine):
-    _RPRContext = RPRContext2

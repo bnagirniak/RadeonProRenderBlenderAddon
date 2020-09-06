@@ -24,13 +24,23 @@ class Context(pyrpr.Context):
         self.render_update_callback = None
 
     def set_render_update_callback(self, callback_func):
-        @pyrpr.ffi.callback("void(float, void *)")
-        def render_update_callback(progress, data):
-            callback_func(progress)
+        if callback_func:
+            @pyrpr.ffi.callback("void(float, void *)")
+            def render_update_callback(progress, data):
+                callback_func(progress)
 
-        pyrpr.ContextSetParameterByKeyPtr(self, pyrpr.CONTEXT_RENDER_UPDATE_CALLBACK_FUNC,
-                                          render_update_callback)
-        self.render_update_callback = render_update_callback
+            pyrpr.ContextSetParameterByKeyPtr(self, pyrpr.CONTEXT_RENDER_UPDATE_CALLBACK_FUNC,
+                                              render_update_callback)
+            self.render_update_callback = render_update_callback
+
+        else:
+            pyrpr.ContextSetParameterByKeyPtr(self, pyrpr.CONTEXT_RENDER_UPDATE_CALLBACK_FUNC,
+                                              pyrpr.ffi.NULL)
+            self.render_update_callback = None
+
+    def delete(self):
+        self.set_render_update_callback(None)
+        super().delete()
 
 
 class SphereLight(pyrpr.Light):
@@ -77,3 +87,11 @@ class DiskLight(pyrpr.Light):
         radius = max(radius, 0.01)
         self._radius_squared = radius * radius
         pyrpr.DiskLightSetRadius(self, radius)
+
+
+class PostEffect:
+    def __init__(self, context, post_effect_type):
+        pass
+
+    def set_parameter(self, name, param):
+        pass

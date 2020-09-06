@@ -120,14 +120,20 @@ class RPRContext:
 
         self.images = {}
 
-    def render(self, restart=False, tile=None):
+    def render(self, *, restart=False, tile=None, iterations=None):
         if restart:
             self.clear_frame_buffers()
+
+        if iterations:
+            self.context.set_parameter(pyrpr.CONTEXT_ITERATIONS, iterations)
 
         if tile is None:
             self.context.render()
         else:
             self.context.render_tile(*tile)
+
+    def abort_render(self):
+        self.context.abort_render()
 
     def get_image(self, aov_type=None):
         return self.get_frame_buffer(aov_type).get_data()
@@ -556,6 +562,7 @@ class RPRContext2(RPRContext):
     _Context = pyrpr2.Context
     _SphereLight = pyrpr2.SphereLight
     _DiskLight = pyrpr2.DiskLight
+    _PostEffect = pyrpr2.PostEffect
 
     def init(self, context_flags, context_props):
         context_flags -= {pyrpr.CREATION_FLAGS_ENABLE_GL_INTEROP}

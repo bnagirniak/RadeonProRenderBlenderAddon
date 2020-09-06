@@ -120,12 +120,9 @@ class RPRContext:
 
         self.images = {}
 
-    def render(self, *, restart=False, tile=None, iterations=None):
+    def render(self, restart=False, tile=None):
         if restart:
             self.clear_frame_buffers()
-
-        if iterations:
-            self.context.set_parameter(pyrpr.CONTEXT_ITERATIONS, iterations)
 
         if tile is None:
             self.context.render()

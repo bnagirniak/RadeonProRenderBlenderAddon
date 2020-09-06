@@ -18,12 +18,13 @@ import traceback
 import textwrap
 
 import pyrpr
+import bpy
 import bgl
 from gpu_extras.presets import draw_texture_2d
 
 from rprblender.export import object, instance
 from .viewport_engine import (
-    ViewportEngine, ViewportSettings,
+    ViewportEngine, ViewportSettings, ShadingData,
     MIN_ADAPT_RESOLUTION_RATIO_DIFF, MIN_ADAPT_RATIO_DIFF
 )
 from .context import RPRContext2
@@ -115,8 +116,13 @@ class ViewportEngine2(ViewportEngine):
             time_begin = 0.0
             time_render = 0.0
 
+            update_iterations = 1
+
             def render_update(progress):
-                if iteration == 0 or progress == 1.0:
+                # if iteration == 0:
+                #     return
+                
+                if progress == 1.0:
                     return
 
                 if self.abort_render_iteration:
@@ -129,14 +135,13 @@ class ViewportEngine2(ViewportEngine):
                     self._resolve()
 
                 time_render = time.perf_counter() - time_begin
+                it = iteration + int(update_iterations * progress)
                 if self.render_iterations > 0:
                     info_str = f"Time: {time_render:.1f} sec" \
-                               f" | Iteration: {iteration}/{self.render_iterations}" \
-                               f" {int(progress * 100)}%"
+                               f" | Iteration: {it}/{self.render_iterations}"
                 else:
                     info_str = f"Time: {time_render:.1f}/{self.render_time} sec" \
-                               f" | Iteration: {iteration}" \
-                               f" {int(progress * 100)}%"
+                               f" | Iteration: {it}"
 
                 self.is_intermediate_render = True
                 self.is_rendered = True
@@ -199,8 +204,10 @@ class ViewportEngine2(ViewportEngine):
                             break
 
                         self.rpr_context.set_parameter(pyrpr.CONTEXT_FRAMECOUNT, iteration)
-                        self.rpr_context.render(restart=(iteration == 0),
-                                                iterations=1 if iteration == 0 else 32)
+                        update_iterations = 1 if iteration == 0 else \
+                            min(32, self.render_iterations - iteration)
+                        self.rpr_context.set_parameter(pyrpr.CONTEXT_ITERATIONS, update_iterations)
+                        self.rpr_context.render(restart=(iteration == 0))
 
                     # resolving
                     with self.resolve_lock:
@@ -208,7 +215,7 @@ class ViewportEngine2(ViewportEngine):
 
                     self.is_rendered = True
                     self.is_denoised = False
-                    iteration += 1
+                    iteration += update_iterations
 
                     # checking for last iteration
                     # preparing information to show in viewport
@@ -409,3 +416,107 @@ class ViewportEngine2(ViewportEngine):
 
             if self.is_resized:
                 self.restart_render_event.set()
+
+    def sync_update(self, context, depsgraph):
+        """ sync just the updated things """
+
+        if not self.is_synced:
+            return
+
+        if context.selected_objects != self.selected_objects:
+            # only a selection change
+            self.selected_objects = context.selected_objects
+            return
+
+        frame_current = depsgraph.scene.frame_current
+
+        # get supported updates and sort by priorities
+        updates = []
+        for obj_type in (bpy.types.Scene, bpy.types.World, bpy.types.Material, bpy.types.Object, bpy.types.Collection):
+            updates.extend(update for update in depsgraph.updates if isinstance(update.id, obj_type))
+
+        sync_collection = False
+        sync_world = False
+        is_updated = False
+        is_obj_updated = False
+
+        material_override = depsgraph.view_layer.material_override
+
+        shading_data = ShadingData(context)
+        if self.shading_data != shading_data:
+            sync_world = True
+
+            if self.shading_data.use_scene_lights != shading_data.use_scene_lights:
+                sync_collection = True
+
+            self.shading_data = shading_data
+
+        self.rpr_context.blender_data['depsgraph'] = depsgraph
+
+        # if view mode changed need to sync collections
+        mode_updated = False
+        if self.view_mode != context.mode:
+            self.view_mode = context.mode
+            mode_updated = True
+
+        if not updates:
+            return
+
+        self.abort_render_iteration = True
+        with self.render_lock:
+            for update in updates:
+                obj = update.id
+                log("sync_update", obj)
+                if isinstance(obj, bpy.types.Scene):
+                    is_updated |= self.update_render(obj, depsgraph.view_layer)
+
+                    # Outliner object visibility change will provide us only bpy.types.Scene update
+                    # That's why we need to sync objects collection in the end
+                    sync_collection = True
+
+                    if is_updated:
+                        self.is_resolution_adapted = False
+
+                    continue
+
+                if isinstance(obj, bpy.types.Material):
+                    is_updated |= self.update_material_on_scene_objects(obj, depsgraph)
+                    continue
+
+                if isinstance(obj, bpy.types.Object):
+                    if obj.type == 'CAMERA':
+                        continue
+
+                    indirect_only = obj.original.indirect_only_get(view_layer=depsgraph.view_layer)
+                    active_and_mode_changed = mode_updated and context.active_object == obj.original
+                    is_updated |= object.sync_update(self.rpr_context, obj,
+                                                     update.is_updated_geometry or active_and_mode_changed,
+                                                     update.is_updated_transform,
+                                                     indirect_only=indirect_only,
+                                                     material_override=material_override,
+                                                     frame_current=frame_current)
+                    is_obj_updated |= is_updated
+                    continue
+
+                if isinstance(obj, bpy.types.World):
+                    sync_world = True
+
+                if isinstance(obj, bpy.types.Collection):
+                    sync_collection = True
+                    continue
+
+            if sync_world:
+                world_settings = self._get_world_settings(depsgraph)
+                if self.world_settings != world_settings:
+                    self.world_settings = world_settings
+                    self.world_settings.export(self.rpr_context)
+                    is_updated = True
+
+            if sync_collection:
+                is_updated |= self.sync_objects_collection(depsgraph)
+
+            if is_obj_updated:
+                with self.resolve_lock:
+                    self.rpr_context.sync_catchers()
+
+        self.restart_render_event.set()

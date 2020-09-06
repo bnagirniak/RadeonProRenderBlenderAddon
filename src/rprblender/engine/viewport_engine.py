@@ -207,6 +207,10 @@ class ViewportEngine(Engine):
         self.render_iterations = 0
         self.render_time = 0
 
+        self.view_mode = None
+        self.space_data = None
+        self.selected_objects = None
+
         self.user_settings = get_user_settings()
 
     def stop_render(self):

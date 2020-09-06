@@ -121,7 +121,7 @@ class ViewportEngine2(ViewportEngine):
             def render_update(progress):
                 # if iteration == 0:
                 #     return
-                
+
                 if progress == 1.0:
                     return
 
@@ -222,11 +222,6 @@ class ViewportEngine2(ViewportEngine):
                     time_render_prev = time_render
                     time_render = time.perf_counter() - time_begin
                     iteration_time = time_render - time_render_prev
-                    if self.user_settings.adapt_viewport_resolution \
-                            and not self.is_resolution_adapted \
-                            and iteration == 2:
-                        target_time = 1.0 / self.user_settings.viewport_samples_per_sec
-                        self.requested_adapt_ratio = target_time / iteration_time
 
                     if self.render_iterations > 0:
                         info_str = f"Time: {time_render:.1f} sec" \
@@ -385,36 +380,6 @@ class ViewportEngine2(ViewportEngine):
                     self._resize(self.viewport_settings.width, self.viewport_settings.height)
 
                 self.is_resolution_adapted = False
-                self.restart_render_event.set()
-
-        else:
-            if self.requested_adapt_ratio is not None:
-                self.abort_render_iteration = True
-                with self.render_lock:
-                    max_w, max_h = self.viewport_settings.width, self.viewport_settings.height
-                    min_w = max(max_w * self.user_settings.min_viewport_resolution_scale // 100, 1)
-                    min_h = max(max_h * self.user_settings.min_viewport_resolution_scale // 100, 1)
-                    if abs(1.0 - self.requested_adapt_ratio) > MIN_ADAPT_RATIO_DIFF:
-                        scale = math.sqrt(self.requested_adapt_ratio)
-                        w, h = int(self.rpr_context.width * scale),\
-                               int(self.rpr_context.height * scale)
-                    else:
-                        w, h = self.rpr_context.width, self.rpr_context.height
-
-                    self._resize(min(max(w, min_w), max_w),
-                                 min(max(h, min_h), max_h))
-
-                    self.requested_adapt_ratio = None
-                    self.is_resolution_adapted = True
-
-            elif not self.user_settings.adapt_viewport_resolution:
-                if self.width != self.viewport_settings.width or \
-                        self.height != self.viewport_settings.height:
-                    self.abort_render_iteration = True
-                    with self.render_lock:
-                        self._resize(self.viewport_settings.width, self.viewport_settings.height)
-
-            if self.is_resized:
                 self.restart_render_event.set()
 
     def sync_update(self, context, depsgraph):

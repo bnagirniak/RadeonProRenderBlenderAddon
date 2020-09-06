@@ -649,13 +649,54 @@ class ViewportEngine(Engine):
         else:
             return self.rpr_context.get_image()
 
+    def draw_texture(self, texture_id, scene):
+        if scene.rpr.render_mode in ('WIREFRAME', 'MATERIAL_INDEX',
+                                     'POSITION', 'NORMAL', 'TEXCOORD'):
+            # Draw without color management
+            draw_texture_2d(texture_id, self.viewport_settings.border[0],
+                            *self.viewport_settings.border[1])
+
+        else:
+            # Bind shader that converts from scene linear to display space,
+            bgl.glEnable(bgl.GL_BLEND)
+            bgl.glBlendFunc(bgl.GL_ONE, bgl.GL_ONE_MINUS_SRC_ALPHA)
+            self.rpr_engine.bind_display_space_shader(scene)
+
+            # note this has to draw to region size, not scaled down size
+            self._draw_texture(texture_id, *self.viewport_settings.border[0],
+                               *self.viewport_settings.border[1])
+
+            self.rpr_engine.unbind_display_space_shader()
+            bgl.glDisable(bgl.GL_BLEND)
+
+    def _draw(self, scene):
+        if self.is_denoised:
+            im = None
+            with self.resolve_lock:
+                if self.image_filter:
+                    im = self.image_filter.get_data()
+
+            if im is not None:
+                self.gl_texture.set_image(im)
+                self.draw_texture(self.gl_texture.texture_id, scene)
+                return
+
+        if self.rpr_context.gl_interop:
+            with self.resolve_lock:
+                self.draw_texture(self.rpr_context.get_frame_buffer().texture_id, scene)
+            return
+
+        with self.resolve_lock:
+            im = self._get_render_image()
+
+        self.gl_texture.set_image(im)
+        self.draw_texture(self.gl_texture.texture_id, scene)
+
     def draw(self, context):
         log("Draw")
 
         if not self.is_synced or self.is_finished:
             return
-
-        scene = context.scene
 
         # initializing self.viewport_settings and requesting first self.restart_render_event
         with self.render_lock:
@@ -670,51 +711,7 @@ class ViewportEngine(Engine):
         if not self.is_rendered:
             return
 
-        # drawing functionality
-        def draw_(texture_id):
-            if scene.rpr.render_mode in ('WIREFRAME', 'MATERIAL_INDEX',
-                                         'POSITION', 'NORMAL', 'TEXCOORD'):
-                # Draw without color management
-                draw_texture_2d(texture_id, self.viewport_settings.border[0],
-                                *self.viewport_settings.border[1])
-
-            else:
-                # Bind shader that converts from scene linear to display space,
-                bgl.glEnable(bgl.GL_BLEND)
-                bgl.glBlendFunc(bgl.GL_ONE, bgl.GL_ONE_MINUS_SRC_ALPHA)
-                self.rpr_engine.bind_display_space_shader(scene)
-
-                # note this has to draw to region size, not scaled down size
-                self._draw_texture(texture_id, *self.viewport_settings.border[0],
-                                   *self.viewport_settings.border[1])
-
-                self.rpr_engine.unbind_display_space_shader()
-                bgl.glDisable(bgl.GL_BLEND)
-
-        def draw__():
-            if self.is_denoised:
-                im = None
-                with self.resolve_lock:
-                    if self.image_filter:
-                        im = self.image_filter.get_data()
-
-                if im is not None:
-                    self.gl_texture.set_image(im)
-                    draw_(self.gl_texture.texture_id)
-                    return
-
-            if self.rpr_context.gl_interop:
-                with self.resolve_lock:
-                    draw_(self.rpr_context.get_frame_buffer().texture_id)
-                return
-
-            with self.resolve_lock:
-                im = self._get_render_image()
-
-            self.gl_texture.set_image(im)
-            draw_(self.gl_texture.texture_id)
-
-        draw__()
+        self._draw(context.scene)
 
         # checking for viewport updates: setting camera position and resizing
         with self.render_lock:

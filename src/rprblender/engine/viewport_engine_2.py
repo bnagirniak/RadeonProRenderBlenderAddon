@@ -292,65 +292,18 @@ class ViewportEngine2(ViewportEngine):
         if not self.is_synced or self.is_finished:
             return
 
-        scene = context.scene
-
         # initializing self.viewport_settings and requesting first self.restart_render_event
         if not self.viewport_settings:
             self.viewport_settings = ViewportSettings(context)
 
             self.viewport_settings.export_camera(self.rpr_context.scene.camera)
             self._resize(self.viewport_settings.width, self.viewport_settings.height)
-            self.is_resolution_adapted = False
             self.restart_render_event.set()
 
         if not self.is_rendered:
             return
 
-        # drawing functionality
-        def draw_(texture_id):
-            if scene.rpr.render_mode in ('WIREFRAME', 'MATERIAL_INDEX',
-                                         'POSITION', 'NORMAL', 'TEXCOORD'):
-                # Draw without color management
-                draw_texture_2d(texture_id, self.viewport_settings.border[0],
-                                *self.viewport_settings.border[1])
-
-            else:
-                # Bind shader that converts from scene linear to display space,
-                bgl.glEnable(bgl.GL_BLEND)
-                bgl.glBlendFunc(bgl.GL_ONE, bgl.GL_ONE_MINUS_SRC_ALPHA)
-                self.rpr_engine.bind_display_space_shader(scene)
-
-                # note this has to draw to region size, not scaled down size
-                self._draw_texture(texture_id, *self.viewport_settings.border[0],
-                                   *self.viewport_settings.border[1])
-
-                self.rpr_engine.unbind_display_space_shader()
-                bgl.glDisable(bgl.GL_BLEND)
-
-        def draw__():
-            if self.is_denoised:
-                im = None
-                with self.resolve_lock:
-                    if self.image_filter:
-                        im = self.image_filter.get_data()
-
-                if im is not None:
-                    self.gl_texture.set_image(im)
-                    draw_(self.gl_texture.texture_id)
-                    return
-
-            if self.rpr_context.gl_interop:
-                with self.resolve_lock:
-                    draw_(self.rpr_context.get_frame_buffer().texture_id)
-                return
-
-            with self.resolve_lock:
-                im = self._get_render_image()
-
-            self.gl_texture.set_image(im)
-            draw_(self.gl_texture.texture_id)
-
-        draw__()
+        self._draw(context.scene)
 
         # checking for viewport updates: setting camera position and resizing
         viewport_settings = ViewportSettings(context)
@@ -363,23 +316,7 @@ class ViewportEngine2(ViewportEngine):
             with self.render_lock:
                 self.viewport_settings = viewport_settings
                 self.viewport_settings.export_camera(self.rpr_context.scene.camera)
-                if self.user_settings.adapt_viewport_resolution:
-                    # trying to use previous resolution or almost same pixels number
-                    max_w, max_h = self.viewport_settings.width, self.viewport_settings.height
-                    min_w = max(max_w * self.user_settings.min_viewport_resolution_scale // 100, 1)
-                    min_h = max(max_h * self.user_settings.min_viewport_resolution_scale // 100, 1)
-                    w, h = self.rpr_context.width, self.rpr_context.height
-
-                    if abs(w / h - max_w / max_h) > MIN_ADAPT_RESOLUTION_RATIO_DIFF:
-                        scale = math.sqrt(w * h / (max_w * max_h))
-                        w, h = int(max_w * scale), int(max_h * scale)
-
-                    self._resize(min(max(w, min_w), max_w),
-                                 min(max(h, min_h), max_h))
-                else:
-                    self._resize(self.viewport_settings.width, self.viewport_settings.height)
-
-                self.is_resolution_adapted = False
+                self._resize(self.viewport_settings.width, self.viewport_settings.height)
                 self.restart_render_event.set()
 
     def sync_update(self, context, depsgraph):
@@ -438,10 +375,6 @@ class ViewportEngine2(ViewportEngine):
                     # Outliner object visibility change will provide us only bpy.types.Scene update
                     # That's why we need to sync objects collection in the end
                     sync_collection = True
-
-                    if is_updated:
-                        self.is_resolution_adapted = False
-
                     continue
 
                 if isinstance(obj, bpy.types.Material):

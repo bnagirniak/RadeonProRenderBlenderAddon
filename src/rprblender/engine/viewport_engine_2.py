@@ -14,18 +14,15 @@
 #********************************************************************
 import time
 import math
-import traceback
-import textwrap
 
 import pyrpr
 import bpy
-import bgl
-from gpu_extras.presets import draw_texture_2d
 
-from rprblender.export import object, instance
+from rprblender.export import object
 from .viewport_engine import (
     ViewportEngine, ViewportSettings, ShadingData, FinishRenderException
 )
+from rprblender.utils import gl
 from .context import RPRContext2
 
 from rprblender.utils import logging
@@ -40,6 +37,7 @@ class ViewportEngine2(ViewportEngine):
 
         self.is_intermediate_render = False
         self.abort_render_iteration = False
+        self.rendered_image = None
 
     def stop_render(self):
         self.abort_render_iteration = True
@@ -65,8 +63,8 @@ class ViewportEngine2(ViewportEngine):
                 return
 
             # log("update_render_callback", progress)
-            with self.resolve_lock:
-                self._resolve()
+            self._resolve()
+            self.rendered_image = self.rpr_context.get_image()
 
             time_render = time.perf_counter() - time_begin
             it = iteration + int(update_iterations * progress)
@@ -82,7 +80,6 @@ class ViewportEngine2(ViewportEngine):
             self.notify_status(info_str, "Render")
 
         self.rpr_context.set_render_update_callback(render_update)
-        self.rpr_context.set_parameter(pyrpr.CONTEXT_ITERATIONS, 32)
 
         self.notify_status("Starting...", "Render")
 
@@ -217,10 +214,15 @@ class ViewportEngine2(ViewportEngine):
             self._resize(self.viewport_settings.width, self.viewport_settings.height)
             self.restart_render_event.set()
 
-        if not self.is_rendered:
+        if self.rendered_image is None:
             return
 
-        self._draw(context.scene)
+        im = self.rendered_image
+        if self.gl_texture.width != im.shape[1] or self.gl_texture.height != im.shape[0]:
+            self.gl_texture = gl.GLTexture(im.shape[1], im.shape[0])
+
+        self.gl_texture.set_image(im)
+        self.draw_texture(self.gl_texture.texture_id, context.scene)
 
         # checking for viewport updates: setting camera position and resizing
         viewport_settings = ViewportSettings(context)

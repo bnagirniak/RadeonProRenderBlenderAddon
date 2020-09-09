@@ -46,13 +46,26 @@ class ViewportEngine2(ViewportEngine):
     def _do_render(self):
         iteration = 0
         time_begin = 0.0
-        time_render = 0.0
-
         update_iterations = 1
 
+        def get_info_str(progress):
+            time_render = time.perf_counter() - time_begin
+
+            s = f"Time: {time_render:.1f}"
+            if self.render_iterations == 0:
+                s += f"/{self.render_time}"
+            s += f" sec | Iteration {iteration + 1}"
+            if update_iterations > 1:
+                s += f"-{iteration + update_iterations}"
+            if self.render_iterations > 0:
+                s += f"/{self.render_iterations}"
+
+            s += " " + "." * int(progress / 0.2)
+            return s
+
         def render_update(progress):
-            # if iteration == 0:
-            #     return
+            if iteration <= 1:
+                return
 
             if progress == 1.0:
                 return
@@ -66,18 +79,9 @@ class ViewportEngine2(ViewportEngine):
             self._resolve()
             self.rendered_image = self.rpr_context.get_image()
 
-            time_render = time.perf_counter() - time_begin
-            it = iteration + int(update_iterations * progress)
-            if self.render_iterations > 0:
-                info_str = f"Time: {time_render:.1f} sec" \
-                           f" | Iteration: {it}/{self.render_iterations}"
-            else:
-                info_str = f"Time: {time_render:.1f}/{self.render_time} sec" \
-                           f" | Iteration: {it}"
-
             self.is_intermediate_render = True
             self.is_rendered = True
-            self.notify_status(info_str, "Render")
+            self.notify_status(get_info_str(progress), "Render")
 
         self.rpr_context.set_render_update_callback(render_update)
 
@@ -98,7 +102,6 @@ class ViewportEngine2(ViewportEngine):
             # preparations to start rendering
             iteration = 0
             time_begin = 0.0
-            time_render = 0.0
             if is_adaptive:
                 all_pixels = active_pixels = self.rpr_context.width * self.rpr_context.height
             is_last_iteration = False
@@ -135,32 +138,19 @@ class ViewportEngine2(ViewportEngine):
                         break
 
                     self.rpr_context.set_parameter(pyrpr.CONTEXT_FRAMECOUNT, iteration)
-                    update_iterations = 1 if iteration == 0 else \
+                    update_iterations = 1 if iteration <= 1 else \
                         min(32, self.render_iterations - iteration)
                     self.rpr_context.set_parameter(pyrpr.CONTEXT_ITERATIONS, update_iterations)
                     self.rpr_context.render(restart=(iteration == 0))
 
                 # resolving
-                with self.resolve_lock:
-                    self._resolve()
+                self._resolve()
+                self.rendered_image = self.rpr_context.get_image()
 
                 self.is_rendered = True
                 self.is_denoised = False
                 iteration += update_iterations
                 time_render = time.perf_counter() - time_begin
-
-                if self.render_iterations > 0:
-                    info_str = f"Time: {time_render:.1f} sec" \
-                               f" | Iteration: {iteration}/{self.render_iterations}"
-                else:
-                    info_str = f"Time: {time_render:.1f}/{self.render_time} sec" \
-                               f" | Iteration: {iteration}"
-
-                if is_adaptive_active:
-                    active_pixels = self.rpr_context.get_info(pyrpr.CONTEXT_ACTIVE_PIXEL_COUNT,
-                                                              int)
-                    adaptive_progress = max((all_pixels - active_pixels) / all_pixels, 0.0)
-                    info_str += f" | Adaptive Sampling: {math.floor(adaptive_progress * 100)}%"
 
                 if self.render_iterations > 0:
                     if iteration >= self.render_iterations:
@@ -175,7 +165,7 @@ class ViewportEngine2(ViewportEngine):
                     break
 
                 self.is_intermediate_render = False
-                self.notify_status(info_str, "Render")
+                self.notify_status(get_info_str(0), "Render")
 
             # notifying viewport that rendering is finished
             if is_last_iteration:

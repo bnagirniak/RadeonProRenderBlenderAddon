@@ -36,11 +36,11 @@ class ViewportEngine2(ViewportEngine):
         super().__init__(rpr_engine)
 
         self.is_intermediate_render = False
-        self.abort_render_iteration = False
+        self.is_abort_render = False
         self.rendered_image = None
 
     def stop_render(self):
-        self.abort_render_iteration = True
+        self.is_abort_render = True
         super().stop_render()
 
     def _do_render(self):
@@ -70,8 +70,7 @@ class ViewportEngine2(ViewportEngine):
             if progress == 1.0:
                 return
 
-            if self.abort_render_iteration:
-                self.abort_render_iteration = False
+            if self.is_abort_render:
                 self.rpr_context.abort_render()
                 return
 
@@ -111,9 +110,6 @@ class ViewportEngine2(ViewportEngine):
                 if self.is_finished:
                     raise FinishRenderException
 
-                is_adaptive_active = is_adaptive and iteration >= self.rpr_context.get_parameter(
-                    pyrpr.CONTEXT_ADAPTIVE_SAMPLING_MIN_SPP)
-
                 if self.restart_render_event.is_set():
                     # clears restart_render_event, prepares to start rendering
                     self.restart_render_event.clear()
@@ -143,7 +139,8 @@ class ViewportEngine2(ViewportEngine):
                     self.rpr_context.set_parameter(pyrpr.CONTEXT_ITERATIONS, update_iterations)
                     self.rpr_context.render(restart=(iteration == 0))
 
-                # resolving
+                self.is_abort_render = False
+
                 self._resolve()
                 self.rendered_image = self.rpr_context.get_image()
 
@@ -158,8 +155,6 @@ class ViewportEngine2(ViewportEngine):
                 else:
                     if time_render >= self.render_time:
                         is_last_iteration = True
-                if is_adaptive and active_pixels == 0:
-                    is_last_iteration = True
 
                 if is_last_iteration:
                     break
@@ -176,11 +171,9 @@ class ViewportEngine2(ViewportEngine):
                                        f" | Denoising...", "Render")
 
                     # applying denoising
-                    with self.resolve_lock:
-                        if self.image_filter:
-                            self.update_image_filter_inputs()
-                            self.image_filter.run()
-                            self.is_denoised = True
+                    self.update_image_filter_inputs()
+                    self.image_filter.run()
+                    self.rendered_image = self.image_filter.get_data()
 
                     time_render = time.perf_counter() - time_begin
                     self.notify_status(f"Time: {time_render:.1f} sec | Iteration: {iteration}"
@@ -199,7 +192,6 @@ class ViewportEngine2(ViewportEngine):
         # initializing self.viewport_settings and requesting first self.restart_render_event
         if not self.viewport_settings:
             self.viewport_settings = ViewportSettings(context)
-
             self.viewport_settings.export_camera(self.rpr_context.scene.camera)
             self._resize(self.viewport_settings.width, self.viewport_settings.height)
             self.restart_render_event.set()
@@ -221,7 +213,7 @@ class ViewportEngine2(ViewportEngine):
             return
 
         if self.viewport_settings != viewport_settings:
-            self.abort_render_iteration = True
+            self.is_abort_render = True
             with self.render_lock:
                 self.viewport_settings = viewport_settings
                 self.viewport_settings.export_camera(self.rpr_context.scene.camera)
@@ -273,7 +265,7 @@ class ViewportEngine2(ViewportEngine):
         if not updates:
             return
 
-        self.abort_render_iteration = True
+        self.is_abort_render = True
         with self.render_lock:
             for update in updates:
                 obj = update.id
@@ -323,7 +315,6 @@ class ViewportEngine2(ViewportEngine):
                 is_updated |= self.sync_objects_collection(depsgraph)
 
             if is_obj_updated:
-                with self.resolve_lock:
-                    self.rpr_context.sync_catchers()
+                self.rpr_context.sync_catchers()
 
         self.restart_render_event.set()

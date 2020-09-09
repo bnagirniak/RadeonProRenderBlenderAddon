@@ -13,7 +13,6 @@
 # limitations under the License.
 #********************************************************************
 import time
-import math
 
 import pyrpr
 import bpy
@@ -35,7 +34,6 @@ class ViewportEngine2(ViewportEngine):
     def __init__(self, rpr_engine):
         super().__init__(rpr_engine)
 
-        self.is_intermediate_render = False
         self.is_abort_render = False
         self.rendered_image = None
 
@@ -48,39 +46,23 @@ class ViewportEngine2(ViewportEngine):
         time_begin = 0.0
         update_iterations = 1
 
-        def get_info_str(progress):
-            time_render = time.perf_counter() - time_begin
-
-            s = f"Time: {time_render:.1f}"
-            if self.render_iterations == 0:
-                s += f"/{self.render_time}"
-            s += f" sec | Iteration {iteration + 1}"
-            if update_iterations > 1:
-                s += f"-{iteration + update_iterations}"
-            if self.render_iterations > 0:
-                s += f"/{self.render_iterations}"
-
-            s += " " + "." * int(progress / 0.2)
-            return s
-
         def render_update(progress):
-            if iteration <= 1:
-                return
-
-            if progress == 1.0:
+            # don't need to do intermediate update for 0, 1 iteration and
+            # at render finish when progress == 1.0
+            if iteration <= 1 or progress == 1.0:
                 return
 
             if self.is_abort_render:
                 self.rpr_context.abort_render()
                 return
 
-            # log("update_render_callback", progress)
             self._resolve()
             self.rendered_image = self.rpr_context.get_image()
 
-            self.is_intermediate_render = True
-            self.is_rendered = True
-            self.notify_status(get_info_str(progress), "Render")
+            time_render = time.perf_counter() - time_begin
+            self.notify_status(f"Time: {time_render:.1f} sec | Iteration "
+                               f"{iteration + update_iterations}/{self.render_iterations}" +
+                               "." * int(progress / 0.2), "Render")
 
         self.rpr_context.set_render_update_callback(render_update)
 
@@ -101,8 +83,6 @@ class ViewportEngine2(ViewportEngine):
             # preparations to start rendering
             iteration = 0
             time_begin = 0.0
-            if is_adaptive:
-                all_pixels = active_pixels = self.rpr_context.width * self.rpr_context.height
             is_last_iteration = False
 
             # this cycle renders each iteration
@@ -116,11 +96,8 @@ class ViewportEngine2(ViewportEngine):
                     iteration = 0
 
                     if self.is_resized:
-                        if not self.rpr_context.gl_interop:
-                            # When gl_interop is not enabled, than resize is better to do in
-                            # this thread. This is important for hybrid.
-                            with self.render_lock:
-                                self.rpr_context.resize(self.width, self.height)
+                        with self.render_lock:
+                            self.rpr_context.resize(self.width, self.height)
                         self.is_resized = False
 
                     self.rpr_context.sync_auto_adapt_subdivision()
@@ -144,8 +121,6 @@ class ViewportEngine2(ViewportEngine):
                 self._resolve()
                 self.rendered_image = self.rpr_context.get_image()
 
-                self.is_rendered = True
-                self.is_denoised = False
                 iteration += update_iterations
                 time_render = time.perf_counter() - time_begin
 
@@ -159,8 +134,9 @@ class ViewportEngine2(ViewportEngine):
                 if is_last_iteration:
                     break
 
-                self.is_intermediate_render = False
-                self.notify_status(get_info_str(0), "Render")
+                time_render = time.perf_counter() - time_begin
+                self.notify_status(f"Time: {time_render:.1f} sec | Iteration {iteration}/"
+                                   f"{self.render_iterations}", "Render")
 
             # notifying viewport that rendering is finished
             if is_last_iteration:

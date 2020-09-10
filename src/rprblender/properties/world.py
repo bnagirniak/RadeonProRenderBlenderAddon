@@ -304,6 +304,17 @@ class RPR_EnvironmentProperties(RPR_Properties):
         size=3,
     )
 
+    # LIGHT GROUP AOV
+    group: EnumProperty(
+        name="Light Group",
+        items=(('0', "1", "Group 1"),
+               ('1', "2", "Group 2"),
+               ('2', "3", "Group 3"),
+               ('3', "4", "Group 4"),),
+        description="Light group for doing split lighting AOVs",
+        default='0',
+    )
+
     @classmethod
     def register(cls):
         log("Register")

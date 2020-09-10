@@ -27,8 +27,10 @@ class RPRContext:
     _MaterialNode = pyrpr.MaterialNode
 
     _PointLight = pyrpr.PointLight
+    _SphereLight = pyrpr.PointLight  # RPR 2.0 only feature, use PointLight instead
     _DirectionalLight = pyrpr.DirectionalLight
     _SpotLight = pyrpr.SpotLight
+    _DiskLight = pyrpr.SpotLight
     _IESLight = pyrpr.IESLight
     _AreaLight = pyrpr.AreaLight
     _EnvironmentLight = pyrpr.EnvironmentLight
@@ -321,9 +323,13 @@ class RPRContext:
             # creating temporary FrameBuffer of required size only to set subdivision
             fb = pyrpr.FrameBuffer(self.context, width, height)
 
-        for obj in objects_with_adaptive_subdivision:
+        self.set_subdivision_on_objects(camera, fb, objects_with_adaptive_subdivision)
+
+    def set_subdivision_on_objects(self, camera, subdivision_framebuffer, objects):
+        """ Apply subdivision to objects using context-specific methods """
+        for obj in objects:
             if isinstance(obj, pyrpr.Shape) and obj.subdivision is not None:
-                obj.set_auto_adapt_subdivision_factor(fb, camera, obj.subdivision['factor'])
+                obj.set_auto_adapt_subdivision_factor(subdivision_framebuffer, camera, obj.subdivision['factor'])
                 obj.set_subdivision_boundary_interop(obj.subdivision['boundary'])
                 obj.set_subdivision_crease_weight(obj.subdivision['crease_weight'])
 
@@ -352,8 +358,12 @@ class RPRContext:
     def create_light(self, key, light_type):
         if light_type == 'point':
             light = self._PointLight(self.context)
+        elif light_type == 'sphere':
+            light = self._SphereLight(self.context)
         elif light_type == 'spot':
             light = self._SpotLight(self.context)
+        elif light_type == 'disk':
+            light = self._DiskLight(self.context)
         elif light_type == 'directional':
             light = self._DirectionalLight(self.context)
         elif light_type == 'ies':
@@ -544,8 +554,8 @@ class RPRContext2(RPRContext):
 
     # Classes
     _Context = pyrpr2.Context
-    _Curve = pyrpr2.Curve
-    _Scene = pyrpr2.Scene
+    _SphereLight = pyrpr2.SphereLight
+    _DiskLight = pyrpr2.DiskLight
 
     def init(self, context_flags, context_props):
         context_flags -= {pyrpr.CREATION_FLAGS_ENABLE_GL_INTEROP}
@@ -559,3 +569,12 @@ class RPRContext2(RPRContext):
 
     def sync_catchers(self, use_transparent_background=False):
         pass
+
+    def set_subdivision_on_objects(self, camera, subdivision_framebuffer, objects):
+        # 1.35.4 core version RPR2 doesn't support auto adaptive subdivision, use set_subdivision_factor instead
+        # TODO remove when RPR 2 supports adaptive subdivision
+        for obj in objects:
+            if isinstance(obj, pyrpr.Shape) and obj.subdivision is not None:
+                obj.set_subdivision_factor(obj.subdivision['factor'])
+                obj.set_subdivision_boundary_interop(obj.subdivision['boundary'])
+                obj.set_subdivision_crease_weight(obj.subdivision['crease_weight'])

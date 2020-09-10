@@ -32,6 +32,9 @@ from rprblender.utils import logging
 log = logging.Log(tag='RenderEngine')
 
 
+MAX_RENDER_ITERATIONS = 32
+
+
 class RenderEngine(Engine):
     """ Final render engine """
 
@@ -142,6 +145,9 @@ class RenderEngine(Engine):
                 break
 
             render_iteration += 1
+            if render_iteration > 1 and self.render_update_samples < MAX_RENDER_ITERATIONS:
+                # progressively increase update samples up to 32
+                self.render_update_samples *= 2
 
         if self.image_filter:
             self.notify_status(1.0, "Applying denoising final image")
@@ -242,8 +248,11 @@ class RenderEngine(Engine):
                     break
 
                 render_iteration += 1
+                if render_iteration > 1 and self.render_update_samples < MAX_RENDER_ITERATIONS:
+                    # progressively increase update samples up to 32
+                    self.render_update_samples *= 2
 
-            if self.image_filter and sample == self.render_samples:
+            if self.image_filter and not self.rpr_engine.test_break():
                 self.update_image_filter_inputs(tile_pos)
 
         if self.image_filter and not self.rpr_engine.test_break():
@@ -415,7 +424,11 @@ class RenderEngine(Engine):
             self.camera_data.export(rpr_camera)
 
         # Environment is synced once per frame
-        world_settings = world.sync(self.rpr_context, scene.world)
+        if scene.world.is_evaluated:  # for some reason World data can came in unevaluated
+            world_data = scene.world
+        else:
+            world_data = scene.world.evaluated_get(depsgraph)
+        world_settings = world.sync(self.rpr_context, world_data)
         self.world_backplate = world_settings.backplate
 
         # SYNC MOTION BLUR
@@ -460,7 +473,11 @@ class RenderEngine(Engine):
         scene.rpr.export_pixel_filter(self.rpr_context)
 
         self.render_samples, self.render_time = (scene.rpr.limits.max_samples, scene.rpr.limits.seconds)
-        self.render_update_samples = scene.rpr.limits.update_samples
+
+        if scene.rpr.render_quality == 'FULL2':
+            self.render_update_samples = scene.rpr.limits.update_samples_rpr2
+        else:
+            self.render_update_samples = scene.rpr.limits.update_samples
 
         if scene.rpr.use_render_stamp:
             self.render_stamp_text = self.prepare_scene_stamp_text(scene)
@@ -477,6 +494,10 @@ class RenderEngine(Engine):
 
         settings = get_user_settings()
         if not settings.collect_stat:
+            return
+
+        from rprblender.utils import athena
+        if athena.is_disabled():
             return
 
         devices = settings.final_devices
@@ -515,7 +536,6 @@ class RenderEngine(Engine):
         self._update_athena_data(data)
 
         # sending data
-        from rprblender.utils import athena
         athena.send_data(data)
 
     def _update_athena_data(self, data):

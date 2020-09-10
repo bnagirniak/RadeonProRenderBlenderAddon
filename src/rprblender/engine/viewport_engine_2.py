@@ -13,6 +13,7 @@
 # limitations under the License.
 #********************************************************************
 import time
+import threading
 
 import pyrpr
 import bpy
@@ -35,11 +36,18 @@ class ViewportEngine2(ViewportEngine):
         super().__init__(rpr_engine)
 
         self.is_abort_render = False
+        self.is_last_iteration = False
         self.rendered_image = None
+
+        self.resolve_event = threading.Event()
+        self.resolve_thread = None
 
     def stop_render(self):
         self.is_abort_render = True
         super().stop_render()
+
+        self.resolve_event.set()
+        self.resolve_thread.join()
 
     def _do_render(self):
         iteration = 0
@@ -56,8 +64,7 @@ class ViewportEngine2(ViewportEngine):
                 self.rpr_context.abort_render()
                 return
 
-            self._resolve()
-            self.rendered_image = self.rpr_context.get_image()
+            self.resolve_event.set()
 
             time_render = time.perf_counter() - time_begin
             self.notify_status(f"Time: {time_render:.1f} sec | Iteration "
@@ -83,7 +90,7 @@ class ViewportEngine2(ViewportEngine):
             # preparations to start rendering
             iteration = 0
             time_begin = 0.0
-            is_last_iteration = False
+            self.is_last_iteration = False
 
             # this cycle renders each iteration
             while True:
@@ -117,47 +124,56 @@ class ViewportEngine2(ViewportEngine):
                     self.rpr_context.render(restart=(iteration == 0))
 
                 self.is_abort_render = False
-
-                self._resolve()
-                self.rendered_image = self.rpr_context.get_image()
-
                 iteration += update_iterations
-                time_render = time.perf_counter() - time_begin
+                self.is_last_iteration = iteration >= self.render_iterations
 
-                if self.render_iterations > 0:
-                    if iteration >= self.render_iterations:
-                        is_last_iteration = True
-                else:
-                    if time_render >= self.render_time:
-                        is_last_iteration = True
-
-                if is_last_iteration:
+                if self.is_last_iteration:
                     break
+
+                self.resolve_event.set()
 
                 time_render = time.perf_counter() - time_begin
                 self.notify_status(f"Time: {time_render:.1f} sec | Iteration {iteration}/"
                                    f"{self.render_iterations}", "Render")
 
+            if not self.is_last_iteration:
+                continue
+
             # notifying viewport that rendering is finished
-            if is_last_iteration:
+            self._resolve()
+
+            time_render = time.perf_counter() - time_begin
+            if self.image_filter:
+                self.notify_status(f"Time: {time_render:.1f} sec | Iteration: {iteration}"
+                                   f" | Denoising...", "Render")
+
+                # applying denoising
+                self.update_image_filter_inputs()
+                self.image_filter.run()
+                self.rendered_image = self.image_filter.get_data()
+
                 time_render = time.perf_counter() - time_begin
+                self.notify_status(f"Time: {time_render:.1f} sec | Iteration: {iteration}"
+                                   f" | Denoised", "Rendering Done")
 
-                if self.image_filter:
-                    self.notify_status(f"Time: {time_render:.1f} sec | Iteration: {iteration}"
-                                       f" | Denoising...", "Render")
+            else:
+                self.notify_status(f"Time: {time_render:.1f} sec | Iteration: {iteration}",
+                                   "Rendering Done")
 
-                    # applying denoising
-                    self.update_image_filter_inputs()
-                    self.image_filter.run()
-                    self.rendered_image = self.image_filter.get_data()
+    def _do_resolve(self):
+        while True:
+            self.resolve_event.wait()
+            self.resolve_event.clear()
+            if self.is_finished:
+                break
 
-                    time_render = time.perf_counter() - time_begin
-                    self.notify_status(f"Time: {time_render:.1f} sec | Iteration: {iteration}"
-                                       f" | Denoised", "Rendering Done")
+            if self.is_last_iteration:
+                continue
 
-                else:
-                    self.notify_status(f"Time: {time_render:.1f} sec | Iteration: {iteration}",
-                                       "Rendering Done")
+            self._resolve()
+            self.rendered_image = self.rpr_context.get_image()
+
+        log("Finish _do_resolve")
 
     def draw(self, context):
         log("Draw")
@@ -195,6 +211,11 @@ class ViewportEngine2(ViewportEngine):
                 self.viewport_settings.export_camera(self.rpr_context.scene.camera)
                 self._resize(self.viewport_settings.width, self.viewport_settings.height)
                 self.restart_render_event.set()
+
+    def sync(self, context, depsgraph):
+        super().sync(context, depsgraph)
+        self.resolve_thread = threading.Thread(target=self._do_resolve)
+        self.resolve_thread.start()
 
     def sync_update(self, context, depsgraph):
         """ sync just the updated things """

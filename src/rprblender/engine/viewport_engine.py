@@ -287,6 +287,8 @@ class ViewportEngine(Engine):
             notify_status("Starting...", "Render")
 
             is_adaptive = self.rpr_context.is_aov_enabled(pyrpr.AOV_VARIANCE)
+            MIN_DENOISE_ITERATION = 4
+            MAX_DENOISE_ITERATION_STEP = 32
 
             # Infinite cycle, which starts when scene has to be re-rendered.
             # It waits for restart_render_event be enabled.
@@ -305,6 +307,7 @@ class ViewportEngine(Engine):
                 if is_adaptive:
                     all_pixels = active_pixels = self.rpr_context.width * self.rpr_context.height
                 is_last_iteration = False
+                next_denoise_iteration = MIN_DENOISE_ITERATION
 
                 # this cycle renders each iteration
                 while True:
@@ -340,13 +343,28 @@ class ViewportEngine(Engine):
                         self.rpr_context.set_parameter(pyrpr.CONTEXT_FRAMECOUNT, iteration)
                         self.rpr_context.render(restart=(iteration == 0))
 
+                    iteration += 1
+
                     # resolving
                     with self.resolve_lock:
                         self._resolve()
+                        if self.image_filter:
+                            if iteration < MIN_DENOISE_ITERATION:
+                                self.is_denoised = False
+
+                            elif iteration == next_denoise_iteration:
+                                self.update_image_filter_inputs()
+                                self.image_filter.run()
+                                self.is_denoised = True
+                                # increasing next_denoise_iteration by 2 times,
+                                # but not more then MAX_DENOISE_ITERATION_STEP
+                                next_denoise_iteration += min(next_denoise_iteration,
+                                                              MAX_DENOISE_ITERATION_STEP)
+
+                        else:
+                            self.is_denoised = False
 
                     self.is_rendered = True
-                    self.is_denoised = False
-                    iteration += 1
 
                     # checking for last iteration
                     # preparing information to show in viewport
@@ -371,6 +389,9 @@ class ViewportEngine(Engine):
                         adaptive_progress = max((all_pixels - active_pixels) / all_pixels, 0.0)
                         info_str += f" | Adaptive Sampling: {math.floor(adaptive_progress * 100)}%"
 
+                    if self.is_denoised:
+                        info_str += " | Denoised"
+
                     if self.render_iterations > 0:
                         if iteration >= self.render_iterations:
                             is_last_iteration = True
@@ -390,9 +411,6 @@ class ViewportEngine(Engine):
                     time_render = time.perf_counter() - time_begin
 
                     if self.image_filter:
-                        notify_status(f"Time: {time_render:.1f} sec | Iteration: {iteration}"
-                                      f" | Denoising...", "Render")
-
                         # applying denoising
                         with self.resolve_lock:
                             if self.image_filter:

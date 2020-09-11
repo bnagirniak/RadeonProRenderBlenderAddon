@@ -35,7 +35,6 @@ class ViewportEngine2(ViewportEngine):
     def __init__(self, rpr_engine):
         super().__init__(rpr_engine)
 
-        self.is_abort_render = False
         self.is_last_iteration = False
         self.rendered_image = None
 
@@ -55,13 +54,13 @@ class ViewportEngine2(ViewportEngine):
         update_iterations = 1
 
         def render_update(progress):
+            if self.restart_render_event.is_set():
+                self.rpr_context.abort_render()
+                return
+
             # don't need to do intermediate update for 0, 1 iteration and
             # at render finish when progress == 1.0
             if iteration <= 1 or progress == 1.0:
-                return
-
-            if self.is_abort_render:
-                self.rpr_context.abort_render()
                 return
 
             self.resolve_event.set()
@@ -112,6 +111,9 @@ class ViewportEngine2(ViewportEngine):
                     time_begin = time.perf_counter()
                     log(f"Restart render [{vs.width}, {vs.height}]")
 
+                if self.restart_render_event.is_set():
+                    continue
+
                 # rendering
                 self.rpr_context.set_parameter(pyrpr.CONTEXT_FRAMECOUNT, iteration)
                 update_iterations = 1 if iteration <= 1 else \
@@ -121,7 +123,9 @@ class ViewportEngine2(ViewportEngine):
                 with self.render_lock:
                     self.rpr_context.render(restart=(iteration == 0))
 
-                self.is_abort_render = False
+                if self.restart_render_event.is_set():
+                    continue
+
                 iteration += update_iterations
                 self.is_last_iteration = iteration >= self.render_iterations
 
@@ -165,13 +169,15 @@ class ViewportEngine2(ViewportEngine):
             if self.is_finished:
                 break
 
+            if self.restart_render_event.is_set():
+                continue
+
             if self.is_last_iteration:
                 continue
 
             with self.resolve_lock:
                 self._resolve()
-                
-            self.rendered_image = self.rpr_context.get_image()
+                self.rendered_image = self.rpr_context.get_image()
 
         log("Finish _do_resolve")
 
@@ -185,27 +191,29 @@ class ViewportEngine2(ViewportEngine):
         if not self.viewport_settings:
             self.viewport_settings = ViewportSettings(context)
             self.restart_render_event.set()
+            return
 
-        if self.rendered_image is None:
+        # checking for viewport updates: setting camera position and resizing
+        viewport_settings = ViewportSettings(context)
+        if viewport_settings.width * viewport_settings.height == 0:
+            return
+
+        if self.viewport_settings != viewport_settings:
+            self.viewport_settings = viewport_settings
+            self.restart_render_event.set()
+            self.rendered_image = None
             return
 
         im = self.rendered_image
+        if im is None:
+            return
+
         if self.gl_texture.width != im.shape[1] or self.gl_texture.height != im.shape[0]:
             self.gl_texture = gl.GLTexture(im.shape[1], im.shape[0])
 
         self.gl_texture.set_image(im)
         self.draw_texture(self.gl_texture.texture_id, context.scene)
 
-        # checking for viewport updates: setting camera position and resizing
-        viewport_settings = ViewportSettings(context)
-
-        if viewport_settings.width * viewport_settings.height == 0:
-            return
-
-        if self.viewport_settings != viewport_settings:
-            self.viewport_settings = viewport_settings
-            self.is_abort_render = True
-            self.restart_render_event.set()
 
     def sync(self, context, depsgraph):
         super().sync(context, depsgraph)

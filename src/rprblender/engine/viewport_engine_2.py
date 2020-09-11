@@ -75,8 +75,6 @@ class ViewportEngine2(ViewportEngine):
 
         self.notify_status("Starting...", "Render")
 
-        is_adaptive = self.rpr_context.is_aov_enabled(pyrpr.AOV_VARIANCE)
-
         # Infinite cycle, which starts when scene has to be re-rendered.
         # It waits for restart_render_event be enabled.
         # Exit from this cycle is implemented through raising FinishRender
@@ -100,27 +98,27 @@ class ViewportEngine2(ViewportEngine):
                 if self.restart_render_event.is_set():
                     # clears restart_render_event, prepares to start rendering
                     self.restart_render_event.clear()
-                    iteration = 0
 
-                    if self.is_resized:
-                        with self.render_lock:
-                            self.rpr_context.resize(self.width, self.height)
-                        self.is_resized = False
+                    vs = self.viewport_settings
+                    if vs.width != self.rpr_context.width or vs.height != self.rpr_context.height:
+                        with self.resolve_lock:
+                            self.rpr_context.resize(vs.width, vs.height)
+
+                    vs.export_camera(self.rpr_context.scene.camera)
+                    iteration = 0
 
                     self.rpr_context.sync_auto_adapt_subdivision()
                     self.rpr_context.sync_portal_lights()
                     time_begin = time.perf_counter()
-                    log(f"Restart render [{self.width}, {self.height}]")
+                    log(f"Restart render [{vs.width}, {vs.height}]")
 
                 # rendering
-                with self.render_lock:
-                    if self.restart_render_event.is_set():
-                        break
+                self.rpr_context.set_parameter(pyrpr.CONTEXT_FRAMECOUNT, iteration)
+                update_iterations = 1 if iteration <= 1 else \
+                    min(32, self.render_iterations - iteration)
+                self.rpr_context.set_parameter(pyrpr.CONTEXT_ITERATIONS, update_iterations)
 
-                    self.rpr_context.set_parameter(pyrpr.CONTEXT_FRAMECOUNT, iteration)
-                    update_iterations = 1 if iteration <= 1 else \
-                        min(32, self.render_iterations - iteration)
-                    self.rpr_context.set_parameter(pyrpr.CONTEXT_ITERATIONS, update_iterations)
+                with self.render_lock:
                     self.rpr_context.render(restart=(iteration == 0))
 
                 self.is_abort_render = False
@@ -170,7 +168,9 @@ class ViewportEngine2(ViewportEngine):
             if self.is_last_iteration:
                 continue
 
-            self._resolve()
+            with self.resolve_lock:
+                self._resolve()
+                
             self.rendered_image = self.rpr_context.get_image()
 
         log("Finish _do_resolve")
@@ -184,8 +184,6 @@ class ViewportEngine2(ViewportEngine):
         # initializing self.viewport_settings and requesting first self.restart_render_event
         if not self.viewport_settings:
             self.viewport_settings = ViewportSettings(context)
-            self.viewport_settings.export_camera(self.rpr_context.scene.camera)
-            self._resize(self.viewport_settings.width, self.viewport_settings.height)
             self.restart_render_event.set()
 
         if self.rendered_image is None:
@@ -205,12 +203,9 @@ class ViewportEngine2(ViewportEngine):
             return
 
         if self.viewport_settings != viewport_settings:
+            self.viewport_settings = viewport_settings
             self.is_abort_render = True
-            with self.render_lock:
-                self.viewport_settings = viewport_settings
-                self.viewport_settings.export_camera(self.rpr_context.scene.camera)
-                self._resize(self.viewport_settings.width, self.viewport_settings.height)
-                self.restart_render_event.set()
+            self.restart_render_event.set()
 
     def sync(self, context, depsgraph):
         super().sync(context, depsgraph)

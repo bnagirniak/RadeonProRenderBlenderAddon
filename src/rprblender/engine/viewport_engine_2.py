@@ -103,8 +103,9 @@ class ViewportEngine2(ViewportEngine):
                         continue
 
                     if vs.width != self.rpr_context.width or vs.height != self.rpr_context.height:
-                        with self.resolve_lock:
-                            self.rpr_context.resize(vs.width, vs.height)
+                        with self.render_lock:
+                            with self.resolve_lock:
+                                self.rpr_context.resize(vs.width, vs.height)
 
                     vs.export_camera(self.rpr_context.scene.camera)
                     iteration = 0
@@ -205,7 +206,7 @@ class ViewportEngine2(ViewportEngine):
             self.viewport_settings = viewport_settings
             self.restart_render_event.set()
             self.rendered_image = None
-            self.rpr_engine.update_stats("Render", "Starting...")
+            self.rpr_engine.update_stats("Render", "Syncing...")
             return
 
         im = self.rendered_image
@@ -222,3 +223,9 @@ class ViewportEngine2(ViewportEngine):
         super().sync(context, depsgraph)
         self.resolve_thread = threading.Thread(target=self._do_resolve)
         self.resolve_thread.start()
+
+    def _sync_update_before(self):
+        self.restart_render_event.set()
+
+    def _sync_update_after(self):
+        self.rpr_engine.update_stats("Render", "Syncing...")

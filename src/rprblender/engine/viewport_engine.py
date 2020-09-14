@@ -537,6 +537,7 @@ class ViewportEngine(Engine):
             self.view_mode = context.mode
             mode_updated = True
 
+        self._sync_update_before()
         with self.render_lock:
             for update in updates:
                 obj = update.id
@@ -595,6 +596,14 @@ class ViewportEngine(Engine):
 
         if is_updated:
             self.restart_render_event.set()
+
+        self._sync_update_after()
+
+    def _sync_update_before(self):
+        pass
+
+    def _sync_update_after(self):
+        pass
 
     @staticmethod
     def _draw_texture(texture_id, x, y, width, height):

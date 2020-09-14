@@ -99,6 +99,9 @@ class ViewportEngine2(ViewportEngine):
                     self.restart_render_event.clear()
 
                     vs = self.viewport_settings
+                    if vs is None:
+                        continue
+
                     if vs.width != self.rpr_context.width or vs.height != self.rpr_context.height:
                         with self.resolve_lock:
                             self.rpr_context.resize(vs.width, vs.height)
@@ -202,6 +205,7 @@ class ViewportEngine2(ViewportEngine):
             self.viewport_settings = viewport_settings
             self.restart_render_event.set()
             self.rendered_image = None
+            self.rpr_engine.update_stats("Render", "Starting...")
             return
 
         im = self.rendered_image
@@ -214,107 +218,7 @@ class ViewportEngine2(ViewportEngine):
         self.gl_texture.set_image(im)
         self.draw_texture(self.gl_texture.texture_id, context.scene)
 
-
     def sync(self, context, depsgraph):
         super().sync(context, depsgraph)
         self.resolve_thread = threading.Thread(target=self._do_resolve)
         self.resolve_thread.start()
-
-    def sync_update(self, context, depsgraph):
-        """ sync just the updated things """
-
-        if not self.is_synced:
-            return
-
-        if context.selected_objects != self.selected_objects:
-            # only a selection change
-            self.selected_objects = context.selected_objects
-            return
-
-        frame_current = depsgraph.scene.frame_current
-
-        # get supported updates and sort by priorities
-        updates = []
-        for obj_type in (bpy.types.Scene, bpy.types.World, bpy.types.Material, bpy.types.Object, bpy.types.Collection):
-            updates.extend(update for update in depsgraph.updates if isinstance(update.id, obj_type))
-
-        sync_collection = False
-        sync_world = False
-        is_updated = False
-        is_obj_updated = False
-
-        material_override = depsgraph.view_layer.material_override
-
-        shading_data = ShadingData(context)
-        if self.shading_data != shading_data:
-            sync_world = True
-
-            if self.shading_data.use_scene_lights != shading_data.use_scene_lights:
-                sync_collection = True
-
-            self.shading_data = shading_data
-
-        self.rpr_context.blender_data['depsgraph'] = depsgraph
-
-        # if view mode changed need to sync collections
-        mode_updated = False
-        if self.view_mode != context.mode:
-            self.view_mode = context.mode
-            mode_updated = True
-
-        if not updates:
-            return
-
-        self.is_abort_render = True
-        with self.render_lock:
-            for update in updates:
-                obj = update.id
-                log("sync_update", obj)
-                if isinstance(obj, bpy.types.Scene):
-                    is_updated |= self.update_render(obj, depsgraph.view_layer)
-
-                    # Outliner object visibility change will provide us only bpy.types.Scene update
-                    # That's why we need to sync objects collection in the end
-                    sync_collection = True
-                    continue
-
-                if isinstance(obj, bpy.types.Material):
-                    is_updated |= self.update_material_on_scene_objects(obj, depsgraph)
-                    continue
-
-                if isinstance(obj, bpy.types.Object):
-                    if obj.type == 'CAMERA':
-                        continue
-
-                    indirect_only = obj.original.indirect_only_get(view_layer=depsgraph.view_layer)
-                    active_and_mode_changed = mode_updated and context.active_object == obj.original
-                    is_updated |= object.sync_update(self.rpr_context, obj,
-                                                     update.is_updated_geometry or active_and_mode_changed,
-                                                     update.is_updated_transform,
-                                                     indirect_only=indirect_only,
-                                                     material_override=material_override,
-                                                     frame_current=frame_current)
-                    is_obj_updated |= is_updated
-                    continue
-
-                if isinstance(obj, bpy.types.World):
-                    sync_world = True
-
-                if isinstance(obj, bpy.types.Collection):
-                    sync_collection = True
-                    continue
-
-            if sync_world:
-                world_settings = self._get_world_settings(depsgraph)
-                if self.world_settings != world_settings:
-                    self.world_settings = world_settings
-                    self.world_settings.export(self.rpr_context)
-                    is_updated = True
-
-            if sync_collection:
-                is_updated |= self.sync_objects_collection(depsgraph)
-
-            if is_obj_updated:
-                self.rpr_context.sync_catchers()
-
-        self.restart_render_event.set()

@@ -617,20 +617,3 @@ class RenderEngine(Engine):
                 p.rect = [e[:p.channels] for e in ordered_text_bytes]
 
             self.rpr_engine.end_result(result)
-
-
-from .context import RPRContext2
-
-
-class RenderEngine2(RenderEngine):
-    _RPRContext = RPRContext2
-
-    def _update_athena_data(self, data):
-        data['Quality'] = "rpr2"
-
-    def render_update_callback(self, progress):
-        print("render_update_callback", progress)
-
-    def _init_rpr_context(self, scene):
-        super()._init_rpr_context(scene)
-        self.rpr_context.set_render_update_callback(self.render_update_callback)

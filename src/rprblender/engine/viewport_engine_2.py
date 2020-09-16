@@ -107,6 +107,11 @@ class ViewportEngine2(ViewportEngine):
                             with self.resolve_lock:
                                 self.rpr_context.resize(vs.width, vs.height)
 
+                        if self.image_filter:
+                            image_filter_settings = self.image_filter.settings.copy()
+                            image_filter_settings['resolution'] = vs.width, vs.height
+                            self.setup_image_filter(image_filter_settings)
+
                     vs.export_camera(self.rpr_context.scene.camera)
                     iteration = 0
 

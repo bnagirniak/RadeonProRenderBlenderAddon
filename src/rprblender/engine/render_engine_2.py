@@ -28,7 +28,7 @@ class RenderEngine2(RenderEngine):
     def _update_athena_data(self, data):
         data['Quality'] = "rpr2"
 
-    def render(self):
+    def _render(self):
         resolve_event = threading.Event()
         is_finished = False
         time_begin = 0.0
@@ -80,7 +80,7 @@ class RenderEngine2(RenderEngine):
 
         time_begin = time.perf_counter()
         try:
-            super().render()
+            super()._render()
 
         finally:
             is_finished = True

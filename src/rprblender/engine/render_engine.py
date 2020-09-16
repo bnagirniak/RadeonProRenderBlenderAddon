@@ -68,8 +68,7 @@ class RenderEngine(Engine):
 
     def notify_status(self, progress, info):
         """ Display export/render status """
-        if progress is not None:
-            self.rpr_engine.update_progress(progress)
+        self.rpr_engine.update_progress(progress)
         self.rpr_engine.update_stats(self.status_title, info)
 
     def _render(self):

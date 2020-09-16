@@ -129,6 +129,9 @@ class RPRContext:
         else:
             self.context.render_tile(*tile)
 
+    def abort_render(self):
+        self.context.abort_render()
+
     def get_image(self, aov_type=None):
         return self.get_frame_buffer(aov_type).get_data()
 

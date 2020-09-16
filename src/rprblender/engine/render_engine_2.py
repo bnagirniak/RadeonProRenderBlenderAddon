@@ -15,8 +15,8 @@
 import threading
 import time
 
-from rprblender import RenderEngine
-from rprblender.engine.context import RPRContext2
+from .render_engine import RenderEngine
+from .context import RPRContext2
 
 from rprblender.utils import logging
 log = logging.Log(tag='RenderEngine2')
@@ -37,13 +37,25 @@ class RenderEngine2(RenderEngine):
             if progress == 1.0:
                 return
 
+            if self.rpr_engine.test_break():
+                self.rpr_context.abort_render()
+                return
+
+            update_samples = min(self.render_update_samples,
+                                 self.render_samples - self.current_sample)
+            full_progress = max(
+                (self.current_sample + update_samples * progress) / self.render_samples,
+                self.current_render_time / self.render_time if self.render_time else 0
+            )
+
             self.current_render_time = time.perf_counter() - time_begin
             info_str = f"Render Time: {self.current_render_time:.1f}"
             if self.render_time:
                 info_str += f"/{self.render_time}"
-            info_str += f" sec | Samples: {self.current_sample}/{self.render_samples}"
-            info_str += '.' * int(progress / 0.2)
-            self.notify_status(None, info_str)
+            info_str += f" sec | Samples: {self.current_sample + update_samples}" \
+                        f"/{self.render_samples}" + '.' * int(progress / 0.2)
+
+            self.notify_status(full_progress, info_str)
 
             resolve_event.set()
 
@@ -74,6 +86,3 @@ class RenderEngine2(RenderEngine):
             is_finished = True
             resolve_event.set()
             resolve_thread.join()
-
-    def _render(self):
-        super()._render()

@@ -182,7 +182,7 @@ class ViewportEngine(Engine):
     def __init__(self, rpr_engine):
         super().__init__(rpr_engine)
 
-        self.gl_texture: gl.GLTexture = None
+        self.gl_texture = gl.GLTexture()
         self.viewport_settings: ViewportSettings = None
         self.world_settings: world.WorldData = None
         self.shading_data: ShadingData = None
@@ -208,6 +208,7 @@ class ViewportEngine(Engine):
 
         self.render_iterations = 0
         self.render_time = 0
+        self.denoised_image = None
 
         self.user_settings = get_user_settings()
 
@@ -325,7 +326,7 @@ class ViewportEngine(Engine):
                         # clears restart_render_event, prepares to start rendering
                         self.restart_render_event.clear()
                         iteration = 0
-                        
+
                         if self.is_resized:
                             if not self.rpr_context.gl_interop:
                                 # When gl_interop is not enabled, than resize is better to do in
@@ -349,12 +350,15 @@ class ViewportEngine(Engine):
 
                     iteration += 1
                     if iteration < MIN_DENOISE_ITERATION:
+                        self.denoised_image = None
                         self.is_denoised = False
 
                     if not self.is_denoised:
                         # resolving
                         with self.resolve_lock:
                             self._resolve()
+
+                        self.denoised_image = self.rpr_context.get_image()
 
                     if iteration == next_denoise_iteration:
                         # increasing next_denoise_iteration by 2 times,
@@ -449,12 +453,19 @@ class ViewportEngine(Engine):
             if not self.image_filter:
                 continue
 
+            if self.image_filter.width != self.width or self.image_filter.height != self.height:
+                image_filter_settings = self.image_filter.settings.copy()
+                image_filter_settings['resolution'] = self.width, self.height
+                self.setup_image_filter(image_filter_settings)
+
+            with self.render_lock:
+                self._resolve()
+
             with self.resolve_lock:
-                with self.render_lock:
-                    self._resolve()
                 self.update_image_filter_inputs()
                 self.image_filter.run()
 
+            self.denoised_image = self.image_filter.get_data()
             self.is_denoised = True
 
     def sync(self, context, depsgraph):
@@ -477,8 +488,6 @@ class ViewportEngine(Engine):
         # setting initial render resolution as (1, 1) just for AOVs creation.
         # It'll be resized to correct resolution in draw() function
         self.rpr_context.resize(1, 1)
-        if not self.rpr_context.gl_interop:
-            self.gl_texture = gl.GLTexture(self.width, self.height)
 
         self.rpr_context.enable_aov(pyrpr.AOV_COLOR)
 
@@ -728,6 +737,12 @@ class ViewportEngine(Engine):
                 bgl.glDisable(bgl.GL_BLEND)
 
         def draw__():
+            im = self.denoised_image
+            if im is not None:
+                self.gl_texture.set_image(im)
+                draw_(self.gl_texture.texture_id)
+                return
+
             if self.is_denoised:
                 im = None
                 with self.resolve_lock:
@@ -819,13 +834,13 @@ class ViewportEngine(Engine):
             with self.resolve_lock:
                 self.rpr_context.resize(self.width, self.height)
 
-        if self.gl_texture:
-            self.gl_texture = gl.GLTexture(self.width, self.height)
+        # if self.gl_texture:
+        #     self.gl_texture = gl.GLTexture(self.width, self.height)
 
-        if self.image_filter:
-            image_filter_settings = self.image_filter.settings.copy()
-            image_filter_settings['resolution'] = self.width, self.height
-            self.setup_image_filter(image_filter_settings)
+        # if self.image_filter:
+        #     image_filter_settings = self.image_filter.settings.copy()
+        #     image_filter_settings['resolution'] = self.width, self.height
+        #     self.setup_image_filter(image_filter_settings)
 
         if self.world_settings.backplate:
             self.world_settings.backplate.export(self.rpr_context, (self.width, self.height))

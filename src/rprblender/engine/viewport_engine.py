@@ -182,7 +182,7 @@ class ViewportEngine(Engine):
     def __init__(self, rpr_engine):
         super().__init__(rpr_engine)
 
-        self.gl_texture: gl.GLTexture = None
+        self.gl_texture = gl.GLTexture()
         self.viewport_settings: ViewportSettings = None
         self.world_settings: world.WorldData = None
         self.shading_data: ShadingData = None
@@ -196,8 +196,8 @@ class ViewportEngine(Engine):
         self.is_finished = False
         self.is_synced = False
         self.is_rendered = False
-        self.is_denoised = False
         self.is_resized = False
+        self.denoised_image = None
 
         self.requested_adapt_ratio = None
         self.is_resolution_adapted = False
@@ -330,6 +330,7 @@ class ViewportEngine(Engine):
                                     self.rpr_context.resize(self.width, self.height)
                             self.is_resized = False
 
+                        self.denoised_image = None
                         self.rpr_context.sync_auto_adapt_subdivision()
                         self.rpr_context.sync_portal_lights()
                         time_begin = time.perf_counter()
@@ -343,26 +344,20 @@ class ViewportEngine(Engine):
                         self.rpr_context.set_parameter(pyrpr.CONTEXT_FRAMECOUNT, iteration)
                         self.rpr_context.render(restart=(iteration == 0))
 
-                    iteration += 1
+                        iteration += 1
 
-                    # resolving
-                    with self.resolve_lock:
-                        self._resolve()
-                        if self.image_filter:
-                            if iteration < MIN_DENOISE_ITERATION:
-                                self.is_denoised = False
-
-                            elif iteration == next_denoise_iteration:
+                        # denoising if needed
+                        if self.image_filter and iteration == next_denoise_iteration:
+                            with self.resolve_lock:
+                                self._resolve()
                                 self.update_image_filter_inputs()
                                 self.image_filter.run()
-                                self.is_denoised = True
-                                # increasing next_denoise_iteration by 2 times,
-                                # but not more then MAX_DENOISE_ITERATION_STEP
-                                next_denoise_iteration += min(next_denoise_iteration,
-                                                              MAX_DENOISE_ITERATION_STEP)
+                                self.denoised_image = self.image_filter.get_data()
 
-                        else:
-                            self.is_denoised = False
+                            # increasing next_denoise_iteration by 2 times,
+                            # but not more then MAX_DENOISE_ITERATION_STEP
+                            next_denoise_iteration += min(next_denoise_iteration,
+                                                          MAX_DENOISE_ITERATION_STEP)
 
                     self.is_rendered = True
 
@@ -389,7 +384,7 @@ class ViewportEngine(Engine):
                         adaptive_progress = max((all_pixels - active_pixels) / all_pixels, 0.0)
                         info_str += f" | Adaptive Sampling: {math.floor(adaptive_progress * 100)}%"
 
-                    if self.is_denoised:
+                    if self.denoised_image is not None:
                         info_str += " | Denoised"
 
                     if self.render_iterations > 0:
@@ -408,23 +403,20 @@ class ViewportEngine(Engine):
 
                 # notifying viewport that rendering is finished
                 if is_last_iteration:
-                    time_render = time.perf_counter() - time_begin
-
-                    if self.image_filter:
-                        # applying denoising
-                        with self.resolve_lock:
-                            if self.image_filter:
+                    with self.render_lock:
+                        if self.image_filter:
+                            # applying denoising
+                            with self.resolve_lock:
+                                self._resolve()
                                 self.update_image_filter_inputs()
                                 self.image_filter.run()
-                                self.is_denoised = True
+                                self.denoised_image = self.image_filter.get_data()
 
-                        time_render = time.perf_counter() - time_begin
-                        notify_status(f"Time: {time_render:.1f} sec | Iteration: {iteration}"
-                                      f" | Denoised", "Rendering Done")
-
-                    else:
-                        notify_status(f"Time: {time_render:.1f} sec | Iteration: {iteration}",
-                                      "Rendering Done")
+                    time_render = time.perf_counter() - time_begin
+                    info_str = f"Time: {time_render:.1f} sec | Iteration: {iteration}"
+                    if self.denoised_image is not None:
+                        info_str += " | Denoised"
+                    notify_status(info_str, "Rendering Done")
 
         except FinishRender:
             log("Finish by user")
@@ -458,8 +450,6 @@ class ViewportEngine(Engine):
         # setting initial render resolution as (1, 1) just for AOVs creation.
         # It'll be resized to correct resolution in draw() function
         self.rpr_context.resize(1, 1)
-        if not self.rpr_context.gl_interop:
-            self.gl_texture = gl.GLTexture(self.width, self.height)
 
         self.rpr_context.enable_aov(pyrpr.AOV_COLOR)
 
@@ -706,23 +696,18 @@ class ViewportEngine(Engine):
                 bgl.glDisable(bgl.GL_BLEND)
 
         def draw__():
-            if self.is_denoised:
-                im = None
-                with self.resolve_lock:
-                    if self.image_filter:
-                        im = self.image_filter.get_data()
-
-                if im is not None:
-                    self.gl_texture.set_image(im)
-                    draw_(self.gl_texture.texture_id)
-                    return
-
-            if self.rpr_context.gl_interop:
-                with self.resolve_lock:
-                    draw_(self.rpr_context.get_frame_buffer().texture_id)
+            im = self.denoised_image
+            if im is not None:
+                self.gl_texture.set_image(im)
+                draw_(self.gl_texture.texture_id)
                 return
 
             with self.resolve_lock:
+                self._resolve()
+                if self.rpr_context.gl_interop:
+                    draw_(self.rpr_context.get_frame_buffer().texture_id)
+                    return
+
                 im = self._get_render_image()
 
             self.gl_texture.set_image(im)
@@ -791,19 +776,16 @@ class ViewportEngine(Engine):
         self.width = width
         self.height = height
 
-        if self.rpr_context.gl_interop:
-            # GL framebuffer ahs to be recreated in this thread,
-            # that's why we call resize here
-            with self.resolve_lock:
+        with self.resolve_lock:
+            if self.rpr_context.gl_interop:
+                # GL framebuffer ahs to be recreated in this thread,
+                # that's why we call resize here
                 self.rpr_context.resize(self.width, self.height)
 
-        if self.gl_texture:
-            self.gl_texture = gl.GLTexture(self.width, self.height)
-
-        if self.image_filter:
-            image_filter_settings = self.image_filter.settings.copy()
-            image_filter_settings['resolution'] = self.width, self.height
-            self.setup_image_filter(image_filter_settings)
+            if self.image_filter:
+                image_filter_settings = self.image_filter.settings.copy()
+                image_filter_settings['resolution'] = self.width, self.height
+                self.setup_image_filter(image_filter_settings)
 
         if self.world_settings.backplate:
             self.world_settings.backplate.export(self.rpr_context, (self.width, self.height))
@@ -978,14 +960,10 @@ class ViewportEngine(Engine):
         image_filter_settings = view_layer.rpr.denoiser.get_settings(scene, False)
         image_filter_settings['resolution'] = (self.rpr_context.width, self.rpr_context.height)
         if self.setup_image_filter(image_filter_settings):
-            self.is_denoised = False
+            self.denoised_image = None
             restart = True
 
         return restart
-
-    def setup_image_filter(self, settings):
-        with self.resolve_lock:
-            return super().setup_image_filter(settings)
 
     def _enable_image_filter(self, settings):
         super()._enable_image_filter(settings)

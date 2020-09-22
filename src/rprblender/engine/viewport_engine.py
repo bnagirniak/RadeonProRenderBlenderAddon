@@ -191,7 +191,6 @@ class ViewportEngine(Engine):
         self.sync_render_thread: threading.Thread = None
         self.restart_render_event = threading.Event()
         self.render_lock = threading.Lock()
-        self.resolve_lock = threading.Lock()
 
         self.is_finished = False
         self.is_synced = False
@@ -348,16 +347,18 @@ class ViewportEngine(Engine):
 
                         # denoising if needed
                         if self.image_filter and iteration == next_denoise_iteration:
-                            with self.resolve_lock:
-                                self._resolve()
-                                self.update_image_filter_inputs()
-                                self.image_filter.run()
-                                self.denoised_image = self.image_filter.get_data()
+                            self._resolve()
+                            self.update_image_filter_inputs()
+                            self.image_filter.run()
+                            self.denoised_image = self.image_filter.get_data()
 
                             # increasing next_denoise_iteration by 2 times,
                             # but not more then MAX_DENOISE_ITERATION_STEP
                             next_denoise_iteration += min(next_denoise_iteration,
                                                           MAX_DENOISE_ITERATION_STEP)
+
+                        if is_adaptive_active:
+                            active_pixels = self.rpr_context.get_info(pyrpr.CONTEXT_ACTIVE_PIXEL_COUNT, int)
 
                     self.is_rendered = True
 
@@ -380,7 +381,6 @@ class ViewportEngine(Engine):
                                    f" | Iteration: {iteration}"
 
                     if is_adaptive_active:
-                        active_pixels = self.rpr_context.get_info(pyrpr.CONTEXT_ACTIVE_PIXEL_COUNT, int)
                         adaptive_progress = max((all_pixels - active_pixels) / all_pixels, 0.0)
                         info_str += f" | Adaptive Sampling: {math.floor(adaptive_progress * 100)}%"
 
@@ -406,11 +406,10 @@ class ViewportEngine(Engine):
                     with self.render_lock:
                         if self.image_filter:
                             # applying denoising
-                            with self.resolve_lock:
-                                self._resolve()
-                                self.update_image_filter_inputs()
-                                self.image_filter.run()
-                                self.denoised_image = self.image_filter.get_data()
+                            self._resolve()
+                            self.update_image_filter_inputs()
+                            self.image_filter.run()
+                            self.denoised_image = self.image_filter.get_data()
 
                     time_render = time.perf_counter() - time_begin
                     info_str = f"Time: {time_render:.1f} sec | Iteration: {iteration}"
@@ -587,8 +586,7 @@ class ViewportEngine(Engine):
                 is_updated |= self.sync_objects_collection(depsgraph)
 
             if is_obj_updated:
-                with self.resolve_lock:
-                    self.rpr_context.sync_catchers()
+                self.rpr_context.sync_catchers()
 
         if is_updated:
             self.restart_render_event.set()
@@ -702,7 +700,7 @@ class ViewportEngine(Engine):
                 draw_(self.gl_texture.texture_id)
                 return
 
-            with self.resolve_lock:
+            with self.render_lock:
                 self._resolve()
                 if self.rpr_context.gl_interop:
                     draw_(self.rpr_context.get_frame_buffer().texture_id)
@@ -776,16 +774,15 @@ class ViewportEngine(Engine):
         self.width = width
         self.height = height
 
-        with self.resolve_lock:
-            if self.rpr_context.gl_interop:
-                # GL framebuffer ahs to be recreated in this thread,
-                # that's why we call resize here
-                self.rpr_context.resize(self.width, self.height)
+        if self.rpr_context.gl_interop:
+            # GL framebuffer ahs to be recreated in this thread,
+            # that's why we call resize here
+            self.rpr_context.resize(self.width, self.height)
 
-            if self.image_filter:
-                image_filter_settings = self.image_filter.settings.copy()
-                image_filter_settings['resolution'] = self.width, self.height
-                self.setup_image_filter(image_filter_settings)
+        if self.image_filter:
+            image_filter_settings = self.image_filter.settings.copy()
+            image_filter_settings['resolution'] = self.width, self.height
+            self.setup_image_filter(image_filter_settings)
 
         if self.world_settings.backplate:
             self.world_settings.backplate.export(self.rpr_context, (self.width, self.height))

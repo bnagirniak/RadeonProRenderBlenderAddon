@@ -218,11 +218,8 @@ class Scene(pyrpr.Scene):
         pyrpr.SceneSetEnvironmentLight(self, None)
         self.environment_light = None
 
-    def clear(self):
-        if self.environment_light:
-            self.remove_environment_light()
-
-        super().clear()
+    def remove_environment_override(self, core_id):
+        del self.environment_overrides[core_id]
 
 
 class PostEffect:

@@ -190,8 +190,10 @@ class RPR_RENDER_PT_quality(RPR_Panel):
 
         rpr = context.scene.rpr
 
-        if len(rpr.render_quality_items) > 1:
-            self.layout.prop(rpr, 'render_quality')
+        self.layout.prop(rpr, 'render_quality')
+        row = self.layout.row()
+        row.enabled = rpr.render_quality in ('FULL', 'FULL2')
+        row.prop(rpr, 'render_mode')
 
 
 class RPR_RENDER_PT_max_ray_depth(RPR_Panel):

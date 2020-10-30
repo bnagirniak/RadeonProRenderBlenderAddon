@@ -469,6 +469,7 @@ class RenderEngine(Engine):
 
         # SET rpr_context parameters
         self.rpr_context.set_parameter(pyrpr.CONTEXT_PREVIEW, False)
+        scene.rpr.export_render_mode(self.rpr_context)
         scene.rpr.export_ray_depth(self.rpr_context)
         scene.rpr.export_pixel_filter(self.rpr_context)
 

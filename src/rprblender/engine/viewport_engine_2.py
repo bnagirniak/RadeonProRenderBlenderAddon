@@ -132,8 +132,10 @@ class ViewportEngine2(ViewportEngine):
                 # starting from second iteration
                 if iteration == 0:
                     self.rpr_context.set_render_update_callback(None)
+                    self.rpr_context.set_parameter(pyrpr.CONTEXT_PREVIEW, 3)
                 elif iteration == 1:
                     self.rpr_context.set_render_update_callback(render_update)
+                    self.rpr_context.set_parameter(pyrpr.CONTEXT_PREVIEW, 0)
 
                 # rendering
                 with self.render_lock:

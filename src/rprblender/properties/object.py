@@ -96,7 +96,7 @@ class RPR_ObjectProperites(RPR_Properties):
         name="Level",
         description="Subdivision level for mesh. For finer subdivision set upper",
         min=0, max=12, soft_max=8,
-        default=1
+        default=3
     )
     subdivision_boundary_type: EnumProperty(
         name="Boundary Type",

@@ -329,8 +329,7 @@ class RPRContext:
             fb = pyrpr.FrameBuffer(self.context, width, height)
 
         for obj in objects_with_adaptive_subdivision:
-            factor = obj.subdivision['factor'] - 8  # adjusting subdivision factor to RPR 2
-            obj.set_auto_adapt_subdivision_factor(fb, camera, factor)
+            obj.set_auto_adapt_subdivision_factor(fb, camera, obj.subdivision['factor'])
             obj.set_subdivision_boundary_interop(obj.subdivision['boundary'])
             obj.set_subdivision_crease_weight(obj.subdivision['crease_weight'])
 
@@ -592,8 +591,7 @@ class RPRContext2(RPRContext):
         auto_ratio_cap = 1.0 / height
 
         for obj in objects_with_adaptive_subdivision:
-            factor = max(obj.subdivision['factor'], 0)
-            obj.set_subdivision_factor(factor)
+            obj.set_subdivision_factor(obj.subdivision['level'])
             obj.set_subdivision_auto_ratio_cap(auto_ratio_cap)
             obj.set_subdivision_boundary_interop(obj.subdivision['boundary'])
             obj.set_subdivision_crease_weight(obj.subdivision['crease_weight'])

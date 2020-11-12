@@ -93,7 +93,7 @@ class RPR_ObjectProperites(RPR_Properties):
         default=False,
     )
     subdivision_factor: FloatProperty(
-        name="Polygon Size",
+        name="Subdiv Polygon Size",
         description="Subdivision polygon size, in pixels that it should be subdivided to.\n"
                     "For finer subdivision set lower.",
         min=0.5, soft_max=512.0,

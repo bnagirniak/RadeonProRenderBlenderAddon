@@ -104,6 +104,7 @@ class ViewportEngine2(ViewportEngine):
             # preparations to start rendering
             iteration = 0
             time_begin = 0.0
+            time_render = 0.0
             self.is_last_iteration = False
 
             # this cycle renders each iteration
@@ -159,7 +160,6 @@ class ViewportEngine2(ViewportEngine):
                     is_set_callback = True
 
                 # rendering
-                start_t = time.perf_counter()
                 with self.render_lock:
                     try:
                         self.rpr_context.render(restart=(iteration == 0))
@@ -168,20 +168,23 @@ class ViewportEngine2(ViewportEngine):
                         if e.status != pyrpr.ERROR_ABORTED:     # ignoring ERROR_ABORTED
                             raise
 
-                delta_t = time.perf_counter() - start_t
-                print(f"Iteration {iteration}-{iteration + update_iterations - 1}, time={delta_t},"
-                      f" time/iteration={delta_t / update_iterations}")
-
                 if iteration > 0 and self.restart_render_event.is_set():
                     continue
 
                 if iteration == 1 and not self.is_resolution_adapted:
-                    w, h = self.rpr_context.width, self.rpr_context.height
-                    # self._resize(w // 2, h // 2)
+                    time_render_prev = time_render
+                    time_render = time.perf_counter() - time_begin
+                    iteration_time = time_render - time_render_prev
+
+                    target_time = 1.0 / self.user_settings.viewport_samples_per_sec
+                    self.requested_adapt_ratio = target_time / iteration_time
+
+                    self._adapt_resize(self.viewport_settings.width, self.viewport_settings.height,
+                                       self.user_settings.min_viewport_resolution_scale * 0.01,
+                                       self.requested_adapt_ratio)
 
                     iteration = 0
                     self.is_resolution_adapted = True
-                    print("Adapting resolution")
                     continue
 
                 iteration += update_iterations

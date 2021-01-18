@@ -17,10 +17,7 @@ import threading
 
 import pyrpr
 
-from .viewport_engine import (
-    ViewportEngine, ViewportSettings, FinishRenderException,
-    MIN_ADAPT_RATIO_DIFF, MIN_ADAPT_RESOLUTION_RATIO_DIFF
-)
+from .viewport_engine import ViewportEngine, ViewportSettings, FinishRenderException
 from .context import RPRContext2
 
 from rprblender.utils import logging
@@ -51,6 +48,25 @@ class ViewportEngine2(ViewportEngine):
         self.rpr_context = None
         self.image_filter = None
 
+    def _resize(self, width, height):
+        if self.width == width and self.height == height:
+            self.is_resized = False
+            return
+
+        with self.render_lock:
+            with self.resolve_lock:
+                self.rpr_context.resize(width, height)
+
+        self.width = width
+        self.height = height
+
+        if self.image_filter:
+            image_filter_settings = self.image_filter.settings.copy()
+            image_filter_settings['resolution'] = self.width, self.height
+            self.setup_image_filter(image_filter_settings)
+
+        self.is_resized = True
+
     def _do_render(self):
         iteration = 0
         time_begin = 0.0
@@ -72,16 +88,6 @@ class ViewportEngine2(ViewportEngine):
             self.notify_status(f"Time: {time_render:.1f} sec | Iteration "
                                f"{iteration + update_iterations}/{self.render_iterations}" +
                                "." * int(progress / 0.2), "Render")
-
-        def resize(w, h):
-            with self.render_lock:
-                with self.resolve_lock:
-                    self.rpr_context.resize(w, h)
-
-            if self.image_filter:
-                image_filter_settings = self.image_filter.settings.copy()
-                image_filter_settings['resolution'] = w, h
-                self.setup_image_filter(image_filter_settings)
 
         self.notify_status("Starting...", "Render")
 
@@ -116,7 +122,7 @@ class ViewportEngine2(ViewportEngine):
                         continue
 
                     if vs.width != self.rpr_context.width or vs.height != self.rpr_context.height:
-                        resize(vs.width, vs.height)
+                        self._resize(vs.width, vs.height)
 
                     vs.export_camera(self.rpr_context.scene.camera)
                     iteration = 0
@@ -168,7 +174,7 @@ class ViewportEngine2(ViewportEngine):
 
                 if iteration == 1 and not self.is_resolution_adapted:
                     w, h = self.rpr_context.width, self.rpr_context.height
-                    resize(w // 2, h // 2)
+                    self._resize(w // 2, h // 2)
 
                     iteration = 0
                     self.is_resolution_adapted = True

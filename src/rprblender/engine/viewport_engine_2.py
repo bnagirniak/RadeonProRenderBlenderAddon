@@ -115,14 +115,17 @@ class ViewportEngine2(ViewportEngine):
                     # clears restart_render_event, prepares to start rendering
                     self.restart_render_event.clear()
 
-                    self.is_resolution_adapted = not self.user_settings.adapt_viewport_resolution
-
                     vs = self.viewport_settings
                     if vs is None:
                         continue
 
-                    if vs.width != self.rpr_context.width or vs.height != self.rpr_context.height:
+                    if self.user_settings.adapt_viewport_resolution:
+                        self._adapt_resize(vs.width, vs.height,
+                                           self.user_settings.min_viewport_resolution_scale * 0.01)
+                    else:
                         self._resize(vs.width, vs.height)
+
+                    self.is_resolution_adapted = not self.user_settings.adapt_viewport_resolution
 
                     vs.export_camera(self.rpr_context.scene.camera)
                     iteration = 0
@@ -174,7 +177,7 @@ class ViewportEngine2(ViewportEngine):
 
                 if iteration == 1 and not self.is_resolution_adapted:
                     w, h = self.rpr_context.width, self.rpr_context.height
-                    self._resize(w // 2, h // 2)
+                    # self._resize(w // 2, h // 2)
 
                     iteration = 0
                     self.is_resolution_adapted = True
@@ -253,6 +256,7 @@ class ViewportEngine2(ViewportEngine):
         # initializing self.viewport_settings and requesting first self.restart_render_event
         if not self.viewport_settings:
             self.viewport_settings = ViewportSettings(context)
+            self._resize(self.viewport_settings.width, self.viewport_settings.height)
             self.restart_render_event.set()
             return
 

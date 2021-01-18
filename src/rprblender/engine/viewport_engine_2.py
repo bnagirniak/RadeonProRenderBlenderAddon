@@ -48,6 +48,10 @@ class ViewportEngine2(ViewportEngine):
         self.rpr_context = None
         self.image_filter = None
 
+    def _resolve(self):
+        self.rpr_context.resolve(None if self.image_filter and self.is_last_iteration else
+                                 (pyrpr.AOV_COLOR,))
+        
     def _resize(self, width, height):
         if self.width == width and self.height == height:
             self.is_resized = False

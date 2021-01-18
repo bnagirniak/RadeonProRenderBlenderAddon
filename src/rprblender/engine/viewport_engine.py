@@ -371,9 +371,7 @@ class ViewportEngine(Engine):
                 time_render_prev = time_render
                 time_render = time.perf_counter() - time_begin
                 iteration_time = time_render - time_render_prev
-                if self.user_settings.adapt_viewport_resolution \
-                        and not self.is_resolution_adapted \
-                        and iteration == 2:
+                if not self.is_resolution_adapted and iteration == 2:
                     target_time = 1.0 / self.user_settings.viewport_samples_per_sec
                     self.requested_adapt_ratio = target_time / iteration_time
 
@@ -571,7 +569,7 @@ class ViewportEngine(Engine):
                     sync_collection = True
 
                     if is_updated:
-                        self.is_resolution_adapted = False
+                        self.is_resolution_adapted = not self.user_settings.adapt_viewport_resolution
 
                     continue
 
@@ -731,7 +729,7 @@ class ViewportEngine(Engine):
 
                 self.viewport_settings.export_camera(self.rpr_context.scene.camera)
                 self._resize(self.viewport_settings.width, self.viewport_settings.height)
-                self.is_resolution_adapted = False
+                self.is_resolution_adapted = not self.user_settings.adapt_viewport_resolution
                 self.restart_render_event.set()
 
         if not self.is_rendered:
@@ -765,7 +763,7 @@ class ViewportEngine(Engine):
                 else:
                     self._resize(self.viewport_settings.width, self.viewport_settings.height)
 
-                self.is_resolution_adapted = False
+                self.is_resolution_adapted = not self.user_settings.adapt_viewport_resolution
                 self.restart_render_event.set()
 
             else:

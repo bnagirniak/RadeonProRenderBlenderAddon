@@ -14,7 +14,6 @@
 #********************************************************************
 import platform
 import traceback
-import os
 import ctypes
 from abc import ABCMeta
 import numpy as np
@@ -26,15 +25,16 @@ import pyrpr
 
 import bgl
 
-lib_wrapped_log_calls = False
-
 
 class _init_data:
-    _log_fun = None
+    log_fun = None
+    lib_wrapped_log_calls = False
 
 
-def init(log_fun):
-    _init_data._log_fun = log_fun
+def init(log_fun, lib_wrapped_log_calls):
+    _init_data.log_fun = log_fun
+    _init_data.lib_wrapped_log_calls = lib_wrapped_log_calls
+
     lib_name = {
         'Windows': "RadeonImageFilters.dll",
         'Linux': "libRadeonImageFilters.so",
@@ -85,13 +85,13 @@ class Object:
         try:
             self.delete()
         except:
-            _init_data._log_fun('EXCEPTION:', traceback.format_exc())
+            _init_data.log_fun('EXCEPTION:', traceback.format_exc())
 
     def delete(self):
         if self._handle_ptr and self._get_handle():
-            if lib_wrapped_log_calls:
-                assert _init_data._log_fun
-                _init_data._log_fun('delete: ', self)
+            if _init_data.lib_wrapped_log_calls:
+                assert _init_data.log_fun
+                _init_data.log_fun('delete: ', self)
             ObjectDelete(self._get_handle())
             self._reset_handle()
             

@@ -31,25 +31,21 @@ if utils.IS_DEBUG_MODE:
 
 else:
     os.environ['PATH'] = f"{utils.package_root_dir()};{os.environ['PATH']}"
+    sys.path.append(str(utils.package_root_dir()))
 
 import pyrpr
 import pyhybrid
 import pyrpr2
 
-rpr_version = utils.core_ver_str(full=True)
-
-log.info(f"Core version: {rpr_version}")
-pyrpr.lib_wrapped_log_calls = config.pyrpr_log_calls
-pyrpr.init(logging.Log(tag='core'))
+pyrpr.init(logging.Log(tag='core'), config.pyrpr_log_calls)
+log.info("Core version:", utils.core_ver_str(full=True))
 
 import pyrpr_load_store
 pyrpr_load_store.init()
 
 import pyrprimagefilters
-rif_version = utils.rif_ver_str(full=True)
-log.info(f"RIF version: {rif_version}")
-pyrprimagefilters.lib_wrapped_log_calls = config.pyrprimagefilters_log_calls
-pyrprimagefilters.init(logging.Log(tag='rif'))
+pyrprimagefilters.init(logging.Log(tag='rif'), config.pyrprimagefilters_log_calls)
+log.info("RIF version:", utils.rif_ver_str(full=True))
 
 from rprblender.utils import helper_lib
 helper_lib.init()

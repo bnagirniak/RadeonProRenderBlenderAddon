@@ -98,63 +98,27 @@ class _init_data:
     _log_fun = None
 
 
-def init(log_fun, rprsdk_bin_path=None):
-
-    _module = __import__(__name__)
-
+def init(log_fun):
     _init_data._log_fun = log_fun
+    lib_name = {
+        'Windows': "RadeonProRender64.dll",
+        'Linux': "libRadeonProRender64.so",
+        'Darwin': "libRadeonProRender64.dylib"
+    }[platform.system()]
 
-    alternate_relative_paths = []
-    if platform.system() == "Windows":
-        alternate_relative_paths += ["../../rif/bin"]
-        lib_names = [
-            'RadeonProRender64.dll',
-            'RadeonImageFilters.dll',
-        ]
-
-    elif platform.system() == "Linux":
-        lib_names = [
-            'libRadeonProRender64.so',
-        ]
-
-    elif platform.system() == "Darwin":
-        lib_names = [
-            'libRadeonProRender64.dylib',
-        ]
-
-    else:
-        raise ValueError("Not supported OS", platform.system())
-
-    for lib_name in lib_names:
-        rpr_lib_path = rprsdk_bin_path / lib_name
-        if os.path.isfile(str(rpr_lib_path)):
-            ctypes.CDLL(str(rpr_lib_path))
-        else:
-            found = False
-            for relpath in alternate_relative_paths:
-                rpr_lib_path = rprsdk_bin_path / relpath / lib_name
-                if os.path.isfile(str(rpr_lib_path)):
-                    try:
-                        ctypes.CDLL(str(rpr_lib_path))
-                    except OSError as e:
-                        print(f"Failed to load '{rpr_lib_path}': {str(e)}")
-                        raise
-                    found = True
-                    break
-
-            if not found:
-                print("Shared lib does not exists \"%s\"\n" % lib_name)
-                assert False
+    ctypes.CDLL(lib_name)
 
     import __rpr
     try:
         lib = __rpr.lib
     except AttributeError:
-        lib = __rpr.ffi.dlopen(str(rprsdk_bin_path/lib_names[0]))
+        lib = __rpr.ffi.dlopen(lib_name)
     pyrprwrap.lib = lib
     pyrprwrap.ffi = __rpr.ffi
     global ffi
     ffi = __rpr.ffi
+
+    _module = __import__(__name__)
 
     for name in pyrprwrap._constants_names:
         setattr(_module, name, getattr(pyrprwrap, name))

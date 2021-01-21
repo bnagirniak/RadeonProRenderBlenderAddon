@@ -15,7 +15,8 @@
 import platform
 import traceback
 import os
-from abc import ABCMeta, abstractmethod
+import ctypes
+from abc import ABCMeta
 import numpy as np
 
 import pyrprimagefilterswrap
@@ -32,33 +33,28 @@ class _init_data:
     _log_fun = None
 
 
-def init(log_fun, rprsdk_bin_path):
-    _module = __import__(__name__)
-
+def init(log_fun):
     _init_data._log_fun = log_fun
-
-    rel_path = "../../rif/bin"
-
     lib_name = {
         'Windows': "RadeonImageFilters.dll",
         'Linux': "libRadeonImageFilters.so",
         'Darwin': "libRadeonImageFilters.dylib"
     }[platform.system()]
 
-    import __imagefilters
+    ctypes.CDLL(lib_name)
 
+    import __imagefilters
     try:
         lib = __imagefilters.lib
     except AttributeError:
-        lib_path = str(rprsdk_bin_path / lib_name)
-        if not os.path.isfile(lib_path):
-            lib_path = str(rprsdk_bin_path / rel_path / lib_name)
-        lib = __imagefilters.ffi.dlopen(lib_path)
+        lib = __imagefilters.ffi.dlopen(lib_name)
 
     pyrprimagefilterswrap.lib = lib
     pyrprimagefilterswrap.ffi = __imagefilters.ffi
     global ffi
     ffi = __imagefilters.ffi
+
+    _module = __import__(__name__)
 
     for name in pyrprimagefilterswrap._constants_names:
         setattr(_module, name, getattr(pyrprimagefilterswrap, name))

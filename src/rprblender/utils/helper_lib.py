@@ -18,7 +18,7 @@ import numpy as np
 import math
 import os
 
-from . import package_root_dir, IS_WIN, IS_MAC
+from . import package_root_dir, OS, IS_WIN, IS_MAC, IS_DEBUG_MODE
 
 from . import logging
 log = logging.Log(tag='utils.helper_lib')
@@ -35,32 +35,24 @@ class VdbGridData(ctypes.Structure):
 
 def init():
     global lib
-    root_dir = package_root_dir()
 
-    OS = platform.system()
+    lib_name = {
+        'Windows': "RPRBlenderHelper.dll",
+        'Linux': "libRPRBlenderHelper.so",
+        'Darwin': "libRPRBlenderHelper.dylib"
+    }[OS]
 
-    paths = [root_dir]
-    if OS == 'Windows':
-        lib_name = "RPRBlenderHelper.dll"
-        paths.append(root_dir / "../../RPRBlenderHelper/.build/Release")
-
-        if (root_dir / "openvdb.dll").is_file():
-            os.environ['PATH'] += ";" + str(root_dir)
+    if IS_DEBUG_MODE:
+        root_dir = package_root_dir().parent.parent
+        if IS_WIN:
+            env_paths = f"{root_dir / 'RPRBlenderHelper/.build/Release'};" \
+                        f"{root_dir / 'RadeonProRenderSharedComponents/OpenVdb/Windows/bin'};"
         else:
-            os.environ['PATH'] += ";" + str((root_dir / "../../RadeonProRenderSharedComponents/OpenVdb/Windows/bin")
-                                            .absolute())
+            env_paths = f"{root_dir / 'RPRBlenderHelper/.build'};"
 
-    elif OS == 'Darwin':
-        lib_name = "libRPRBlenderHelper.dylib"
-        paths.append(root_dir / "../../RPRBlenderHelper/.build")
+        os.environ['PATH'] = env_paths + os.environ['PATH']
 
-    else:
-        lib_name = "libRPRBlenderHelper.so"
-        paths.append(root_dir / "../../RPRBlenderHelper/.build")
-
-    lib_path = next(p / lib_name for p in paths if (p / lib_name).is_file())
-    log('Load lib', lib_path)
-    lib = ctypes.cdll.LoadLibrary(str(lib_path))
+    lib = ctypes.CDLL(lib_name)
 
     # Sun & Sky functions
     lib.set_sun_horizontal_coordinate.argtypes = [ctypes.c_float, ctypes.c_float]
@@ -169,6 +161,3 @@ def vdb_read_grid_data(vdb_file, grid_name):
     lib.vdb_free_grid_data(ctypes.byref(data))
 
     return res
-
-
-init()

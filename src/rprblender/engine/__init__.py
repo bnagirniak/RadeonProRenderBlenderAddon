@@ -21,30 +21,35 @@ from rprblender import utils
 from rprblender.utils import logging
 log = logging.Log(tag='engine.init')
 
-
+path_name = 'PATH' if utils.IS_WIN else 'LD_LIBRARY_PATH'
 if utils.IS_DEBUG_MODE:
     project_root = utils.package_root_dir().parent.parent
-    os.environ['PATH'] = f"{project_root / '.sdk/rpr/bin'};{project_root / '.sdk/rif/bin'};" \
-                         f"{os.environ['PATH']}"
+    rpr_lib_dir = project_root / '.sdk/rpr/bin'
+    rif_lib_dir = project_root / '.sdk/rif/bin'
+    os.environ[path_name] = f"{rpr_lib_dir};{rif_lib_dir};" \
+                            f"{os.environ.get(path_name, '')}"
+
     sys.path.append(str(project_root / "src/bindings/pyrpr/.build"))
     sys.path.append(str(project_root / "src/bindings/pyrpr/src"))
 
 else:
-    os.environ['PATH'] = f"{utils.package_root_dir()};{os.environ['PATH']}"
+    rpr_lib_dir = rif_lib_dir = utils.package_root_dir()
+    os.environ[path_name] = f"{rpr_lib_dir};{os.environ.get(path_name, '')}"
     sys.path.append(str(utils.package_root_dir()))
+
 
 import pyrpr
 import pyhybrid
 import pyrpr2
 
-pyrpr.init(logging.Log(tag='core'), config.pyrpr_log_calls)
+pyrpr.init(rpr_lib_dir, logging.Log(tag='core'), config.pyrpr_log_calls)
 log.info("Core version:", utils.core_ver_str(full=True))
 
 import pyrpr_load_store
-pyrpr_load_store.init()
+pyrpr_load_store.init(rpr_lib_dir)
 
 import pyrprimagefilters
-pyrprimagefilters.init(logging.Log(tag='rif'), config.pyrprimagefilters_log_calls)
+pyrprimagefilters.init(rif_lib_dir, logging.Log(tag='rif'), config.pyrprimagefilters_log_calls)
 log.info("RIF version:", utils.rif_ver_str(full=True))
 
 from rprblender.utils import helper_lib

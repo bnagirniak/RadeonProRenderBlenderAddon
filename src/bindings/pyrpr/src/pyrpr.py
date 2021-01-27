@@ -95,7 +95,7 @@ class _init_data:
     lib_wrapped_log_calls = False
 
 
-def init(log_fun, lib_wrapped_log_calls):
+def init(lib_dir, log_fun, lib_wrapped_log_calls):
     _init_data.log_fun = log_fun
     _init_data.lib_wrapped_log_calls = lib_wrapped_log_calls
 
@@ -105,13 +105,13 @@ def init(log_fun, lib_wrapped_log_calls):
         'Darwin': "libRadeonProRender64.dylib"
     }[platform.system()]
 
-    ctypes.CDLL(lib_name)
+    ctypes.CDLL(str(lib_dir / lib_name))
 
     import __rpr
     try:
         lib = __rpr.lib
     except AttributeError:
-        lib = __rpr.ffi.dlopen(lib_name)
+        lib = __rpr.ffi.dlopen(str(lib_dir / lib_name))
     pyrprwrap.lib = lib
     pyrprwrap.ffi = __rpr.ffi
     global ffi

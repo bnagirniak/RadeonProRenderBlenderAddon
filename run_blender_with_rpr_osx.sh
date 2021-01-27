@@ -30,6 +30,7 @@ if [ -x "${BLENDER_EXE}" ]; then
 	CDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 	DIST_LIB="$CDIR/distlib"
 
+  # set Debug Mode flag
   export RPR_BLENDER_DEBUG=1
 	export LD_LIBRARY_PATH="$DIST_LIB"
 

@@ -19,7 +19,7 @@ import pyrpr
 lib = None
 
 
-def init():
+def init(lib_dir):
     global lib
 
     lib_name = {
@@ -28,7 +28,7 @@ def init():
         'Darwin': "libRprLoadStore64.dylib"
     }[platform.system()]
 
-    lib = ffi.dlopen(lib_name)
+    lib = ffi.dlopen(str(lib_dir / lib_name))
 
 
 def export(name, context, scene, flags):

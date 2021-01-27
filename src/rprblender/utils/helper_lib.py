@@ -44,15 +44,16 @@ def init():
 
     if IS_DEBUG_MODE:
         root_dir = package_root_dir().parent.parent
-        if IS_WIN:
-            env_paths = f"{root_dir / 'RPRBlenderHelper/.build/Release'};" \
-                        f"{root_dir / 'RadeonProRenderSharedComponents/OpenVdb/Windows/bin'};"
-        else:
-            env_paths = f"{root_dir / 'RPRBlenderHelper/.build'};"
+        lib_dir = root_dir / 'RPRBlenderHelper/.build/Release' if IS_WIN else root_dir / 'RPRBlenderHelper/.build'
+        path_name = 'PATH' if IS_WIN else 'LD_LIBRARY_PATH'
+        env_paths = f"{lib_dir};{root_dir / 'RadeonProRenderSharedComponents/OpenVdb/Windows/bin'};" if IS_WIN else \
+                    f"{lib_dir};"
+        os.environ[path_name] = env_paths + os.environ.get(path_name, "")
 
-        os.environ['PATH'] = env_paths + os.environ['PATH']
+    else:
+        lib_dir = package_root_dir()
 
-    lib = ctypes.CDLL(lib_name)
+    lib = ctypes.CDLL(str(lib_dir / lib_name))
 
     # Sun & Sky functions
     lib.set_sun_horizontal_coordinate.argtypes = [ctypes.c_float, ctypes.c_float]

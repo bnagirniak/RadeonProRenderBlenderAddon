@@ -31,7 +31,7 @@ class _init_data:
     lib_wrapped_log_calls = False
 
 
-def init(log_fun, lib_wrapped_log_calls):
+def init(lib_dir, log_fun, lib_wrapped_log_calls):
     _init_data.log_fun = log_fun
     _init_data.lib_wrapped_log_calls = lib_wrapped_log_calls
 
@@ -41,13 +41,13 @@ def init(log_fun, lib_wrapped_log_calls):
         'Darwin': "libRadeonImageFilters.dylib"
     }[platform.system()]
 
-    ctypes.CDLL(lib_name)
+    ctypes.CDLL(str(lib_dir / lib_name))
 
     import __imagefilters
     try:
         lib = __imagefilters.lib
     except AttributeError:
-        lib = __imagefilters.ffi.dlopen(lib_name)
+        lib = __imagefilters.ffi.dlopen(str(lib_dir / lib_name))
 
     pyrprimagefilterswrap.lib = lib
     pyrprimagefilterswrap.ffi = __imagefilters.ffi

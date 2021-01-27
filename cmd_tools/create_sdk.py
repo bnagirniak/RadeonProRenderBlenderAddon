@@ -126,7 +126,7 @@ def copy_rif_sdk():
         shutil.copy(str(bin_dir / "libRadeonML_MPS.0.9.10.dylib"),
                     str(sdk_bin_dir / "libRadeonML_MPS.dylib"))
         shutil.copy(str(bin_dir / "libRadeonML.0.9.10.dylib"),
-                    str(sdk_bin_dir / "libRadeonML.dylib"))
+                    str(sdk_bin_dir / "libRadeonML.0.dylib"))
 
         # adjusting id of RIF libs
         install_name_tool('-id', "@rpath/libRadeonImageFilters.dylib", sdk_bin_dir / "libRadeonImageFilters.dylib")

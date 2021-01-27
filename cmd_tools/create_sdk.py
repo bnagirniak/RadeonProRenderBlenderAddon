@@ -117,6 +117,8 @@ def copy_rif_sdk():
                     str(sdk_bin_dir / "libOpenImageDenoise.so"))
         shutil.copy(str(bin_dir / "libMIOpen.so.2.0.5"),
                     str(sdk_bin_dir / "libMIOpen.so.2"))
+        shutil.copy(str(bin_dir / "libRadeonML.so.0.9.10"),
+                    str(sdk_bin_dir / "libRadeonML.so.0"))
 
     elif OS == 'Darwin':
         shutil.copy(str(bin_dir / "libRadeonImageFilters.1.6.2.dylib"),

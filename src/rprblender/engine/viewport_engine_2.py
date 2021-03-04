@@ -130,10 +130,10 @@ class ViewportEngine2(ViewportEngine):
                         continue
 
                     if self.user_settings.adapt_viewport_resolution:
-                        self._adapt_resize(vs.width, vs.height,
+                        self._adapt_resize(*self._get_resolution(vs),
                                            self.user_settings.min_viewport_resolution_scale * 0.01)
                     else:
-                        self._resize(vs.width, vs.height)
+                        self._resize(*self._get_resolution(vs))
 
                     self.is_resolution_adapted = not self.user_settings.adapt_viewport_resolution
 
@@ -273,7 +273,7 @@ class ViewportEngine2(ViewportEngine):
         # initializing self.viewport_settings and requesting first self.restart_render_event
         if not self.viewport_settings:
             self.viewport_settings = ViewportSettings(context)
-            self._resize(self.viewport_settings.width, self.viewport_settings.height)
+            self._resize(*self._get_resolution())
             self.restart_render_event.set()
             return
 

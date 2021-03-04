@@ -764,9 +764,9 @@ class ViewportEngine(Engine):
         with self.render_lock:
             if not self.viewport_settings:
                 self.viewport_settings = ViewportSettings(context)
-
                 self.viewport_settings.export_camera(self.rpr_context.scene.camera)
-                self._resize(self.viewport_settings.width, self.viewport_settings.height)
+
+                self._resize(*self._get_resolution())
                 self.is_resolution_adapted = not self.user_settings.adapt_viewport_resolution
                 self.restart_render_event.set()
 
@@ -785,25 +785,26 @@ class ViewportEngine(Engine):
             if self.viewport_settings != viewport_settings:
                 self.viewport_settings = viewport_settings
                 self.viewport_settings.export_camera(self.rpr_context.scene.camera)
+
                 if self.user_settings.adapt_viewport_resolution:
-                    self._adapt_resize(self.viewport_settings.width, self.viewport_settings.height,
+                    self._adapt_resize(*self._get_resolution(),
                                        self.user_settings.min_viewport_resolution_scale * 0.01)
                 else:
-                    self._resize(self.viewport_settings.width, self.viewport_settings.height)
+                    self._resize(*self._get_resolution())
 
                 self.is_resolution_adapted = not self.user_settings.adapt_viewport_resolution
                 self.restart_render_event.set()
 
             else:
                 if self.requested_adapt_ratio is not None:
-                    self._adapt_resize(self.viewport_settings.width, self.viewport_settings.height,
+                    self._adapt_resize(*self._get_resolution(),
                                        self.user_settings.min_viewport_resolution_scale * 0.01,
                                        self.requested_adapt_ratio)
                     self.requested_adapt_ratio = None
                     self.is_resolution_adapted = True
 
                 elif not self.user_settings.adapt_viewport_resolution:
-                    self._resize(self.viewport_settings.width, self.viewport_settings.height)
+                    self._resize(*self._get_resolution())
 
                 if self.is_resized:
                     self.restart_render_event.set()
@@ -856,6 +857,14 @@ class ViewportEngine(Engine):
 
         self._resize(min(max(w, min_w), max_w),
                      min(max(h, min_h), max_h))
+
+    def _get_resolution(self, vs=None):
+        if not vs:
+            vs = self.viewport_settings
+        if self.upscale_filter:
+            return vs.width // 2, vs.height // 2
+
+        return vs.width, vs.height
 
     def sync_objects_collection(self, depsgraph):
         """

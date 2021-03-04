@@ -1041,6 +1041,11 @@ class ViewportEngine(Engine):
             self.denoised_image = None
             restart = True
 
+        restart |= self.setup_upscale_filter({
+            'enable': get_user_settings().viewport_resolution_upscale,
+            'resolution': (self.width, self.height),
+        })
+
         return restart
 
     def _get_world_settings(self, depsgraph):

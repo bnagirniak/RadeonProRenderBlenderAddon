@@ -69,6 +69,11 @@ class ViewportEngine2(ViewportEngine):
             image_filter_settings['resolution'] = self.width, self.height
             self.setup_image_filter(image_filter_settings)
 
+        if self.upscale_filter:
+            upscale_filter_settings = self.upscale_filter.settings.copy()
+            upscale_filter_settings['resolution'] = self.width, self.height
+            self.setup_upscale_filter(upscale_filter_settings)
+
         self.is_resized = True
 
     def _do_render(self):
@@ -227,13 +232,18 @@ class ViewportEngine2(ViewportEngine):
                 self.rendered_image = self.image_filter.get_data()
 
                 time_render = time.perf_counter() - time_begin
-                self.notify_status(f"Time: {time_render:.1f} sec | Iteration: {iteration}"
-                                   f" | Denoised", "Rendering Done")
-
+                status_str = f"Time: {time_render:.1f} sec | Iteration: {iteration} | Denoised"
             else:
                 self.rendered_image = self.rpr_context.get_image()
-                self.notify_status(f"Time: {time_render:.1f} sec | Iteration: {iteration}",
-                                   "Rendering Done")
+                status_str = f"Time: {time_render:.1f} sec | Iteration: {iteration}"
+
+            if self.upscale_filter:
+                self.upscale_filter.update_input('color', self.rendered_image)
+                self.upscale_filter.run()
+                self.rendered_image = self.upscale_filter.get_data()
+                status_str += " | Upscaled"
+
+            self.notify_status(status_str, "Rendering Done")
 
     def _do_resolve(self):
         while True:

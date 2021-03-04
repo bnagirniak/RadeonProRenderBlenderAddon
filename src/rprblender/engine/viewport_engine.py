@@ -26,6 +26,8 @@ from bpy_extras import view3d_utils
 
 import pyrpr
 from .engine import Engine
+from . import image_filter
+
 from rprblender.export import camera, material, world, object, instance
 from rprblender.export.mesh import assign_materials
 from rprblender.utils import gl
@@ -201,6 +203,7 @@ class ViewportEngine(Engine):
         self.is_rendered = False
         self.is_resized = False
         self.denoised_image = None
+        self.upscaled_image = None
 
         self.requested_adapt_ratio = None
         self.is_resolution_adapted = False
@@ -334,6 +337,7 @@ class ViewportEngine(Engine):
                         self.is_resized = False
 
                     self.denoised_image = None
+                    self.upscaled_image = None
                     self.rpr_context.sync_auto_adapt_subdivision()
                     self.rpr_context.sync_portal_lights()
                     time_begin = time.perf_counter()
@@ -413,10 +417,25 @@ class ViewportEngine(Engine):
                         self.image_filter.run()
                         self.denoised_image = self.image_filter.get_data()
 
+                        if self.upscale_filter:
+                            self.upscale_filter.update_input('color', self.denoised_image)
+                            self.upscale_filter.run()
+                            self.upscaled_image = self.upscale_filter.get_data()
+
+                    elif self.upscale_filter:
+                        self._resolve()
+                        color = self.rpr_context.get_image()
+                        self.upscale_filter.update_input('color', color)
+                        self.upscale_filter.run()
+                        self.upscaled_image = self.upscale_filter.get_data()
+
                 time_render = time.perf_counter() - time_begin
                 info_str = f"Time: {time_render:.1f} sec | Iteration: {iteration}"
                 if self.denoised_image is not None:
                     info_str += " | Denoised"
+                if self.upscaled_image is not None:
+                    info_str += " | Upscaled"
+
                 self.notify_status(info_str, "Rendering Done")
 
     def _do_sync_render(self, depsgraph):
@@ -487,6 +506,12 @@ class ViewportEngine(Engine):
         image_filter_settings = view_layer.rpr.denoiser.get_settings(scene, False)
         image_filter_settings['resolution'] = (self.width, self.height)
         self.setup_image_filter(image_filter_settings)
+
+        # upscale filter
+        self.setup_upscale_filter({
+            'enable': settings.viewport_resolution_upscale,
+            'resolution': (self.width, self.height),
+        })
 
         # other context settings
         self.rpr_context.set_parameter(pyrpr.CONTEXT_PREVIEW, True)
@@ -706,6 +731,12 @@ class ViewportEngine(Engine):
             bgl.glDisable(bgl.GL_BLEND)
 
     def _draw(self, scene):
+        im = self.upscaled_image
+        if im is not None:
+            self.gl_texture.set_image(im)
+            self.draw_texture(self.gl_texture.texture_id, scene)
+            return
+
         im = self.denoised_image
         if im is not None:
             self.gl_texture.set_image(im)
@@ -794,6 +825,11 @@ class ViewportEngine(Engine):
             image_filter_settings = self.image_filter.settings.copy()
             image_filter_settings['resolution'] = self.width, self.height
             self.setup_image_filter(image_filter_settings)
+
+        if self.upscale_filter:
+            upscale_filter_settings = self.upscale_filter.settings.copy()
+            upscale_filter_settings['resolution'] = self.width, self.height
+            self.setup_upscale_filter(upscale_filter_settings)
 
         if self.world_settings.backplate:
             self.world_settings.backplate.export(self.rpr_context, (self.width, self.height))

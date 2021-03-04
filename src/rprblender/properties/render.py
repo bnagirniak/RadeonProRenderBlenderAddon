@@ -237,6 +237,12 @@ class RPR_UserSettings(bpy.types.PropertyGroup):
         min=5, max=100, default=25,
     )
 
+    viewport_resolution_upscale: BoolProperty(
+        name="Upscale Resolution",
+        description="Rendering at 2 times lower resoluting then upscaling it in the end of render",
+        default=False,
+    )
+
 
 class RPR_RenderProperties(RPR_Properties):
     """ Main render properties. Available from scene.rpr """

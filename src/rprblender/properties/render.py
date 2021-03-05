@@ -239,7 +239,8 @@ class RPR_UserSettings(bpy.types.PropertyGroup):
 
     viewport_resolution_upscale: BoolProperty(
         name="Upscale Resolution",
-        description="Rendering at 2 times lower resoluting then upscaling it in the end of render",
+        description="Rendering at 2 times lower resoluting then upscaling rendered image "
+                    "in the end of render",
         default=False,
     )
 

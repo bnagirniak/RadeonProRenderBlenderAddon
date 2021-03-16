@@ -503,13 +503,11 @@ class ViewportEngine(Engine):
         self.rpr_context.scene.set_camera(rpr_camera)
 
         # image filter
-        image_filter_settings = view_layer.rpr.denoiser.get_settings(scene, False)
-        image_filter_settings['resolution'] = (self.width, self.height)
-        self.setup_image_filter(image_filter_settings)
+        self.setup_image_filter(self._get_image_filter_settings())
 
         # upscale filter
         self.setup_upscale_filter({
-            'enable': settings.viewport_resolution_upscale,
+            'enable': settings.viewport_denoiser_upscale,
             'resolution': (self.width, self.height),
         })
 
@@ -1035,14 +1033,12 @@ class ViewportEngine(Engine):
         restart |= scene.rpr.viewport_limits.set_adaptive_params(self.rpr_context)
 
         # image filter
-        image_filter_settings = view_layer.rpr.denoiser.get_settings(scene, False)
-        image_filter_settings['resolution'] = (self.rpr_context.width, self.rpr_context.height)
-        if self.setup_image_filter(image_filter_settings):
+        if self.setup_image_filter(self._get_image_filter_settings()):
             self.denoised_image = None
             restart = True
 
         restart |= self.setup_upscale_filter({
-            'enable': get_user_settings().viewport_resolution_upscale,
+            'enable': get_user_settings().viewport_denoiser_upscale,
             'resolution': (self.width, self.height),
         })
 
@@ -1053,6 +1049,15 @@ class ViewportEngine(Engine):
             return world.WorldData.init_from_world(depsgraph.scene.world)
 
         return world.WorldData.init_from_shading_data(self.shading_data)
+
+    def _get_image_filter_settings(self):
+        return {
+            'enable': get_user_settings().viewport_denoiser_upscale,
+            'resolution': (self.width, self.height),
+            'filter_type': 'ML',
+            'ml_color_only': True,
+            'ml_use_fp16_compute_type': True,
+        }
 
     def depsgraph_objects(self, depsgraph, with_camera=False):
         for obj in super().depsgraph_objects(depsgraph, with_camera):

@@ -188,7 +188,7 @@ class ViewportEngine2(ViewportEngine):
                     target_time = 1.0 / self.user_settings.viewport_samples_per_sec
                     self.requested_adapt_ratio = target_time / iteration_time
 
-                    self._adapt_resize(self.viewport_settings.width, self.viewport_settings.height,
+                    self._adapt_resize(*self._get_resolution(self.viewport_settings),
                                        self.user_settings.min_viewport_resolution_scale * 0.01,
                                        self.requested_adapt_ratio)
 
